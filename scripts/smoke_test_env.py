@@ -38,13 +38,20 @@ else:
 print("\n=== Minimal GNN forward pass ===")
 try:
     import torch
+    import numpy as np
+    from scipy.spatial import cKDTree
     from torch_geometric.data import Data
-    from torch_geometric.nn import radius_graph
 
     # 5 hits, 6 node features (log_E, t, x, y, r, E_rel)
     x = torch.randn(5, 6)
-    pos = torch.randn(5, 2)  # (x, y) positions
-    edge_index = radius_graph(pos, r=2.0)
+    pos = np.random.randn(5, 2)  # (x, y) positions
+
+    # Build radius graph with scipy (no torch-cluster needed)
+    tree = cKDTree(pos)
+    pairs = tree.query_pairs(r=2.0)
+    src = torch.tensor([i for i, j in pairs] + [j for i, j in pairs], dtype=torch.long)
+    dst = torch.tensor([j for i, j in pairs] + [i for i, j in pairs], dtype=torch.long)
+    edge_index = torch.stack([src, dst], dim=0) if len(pairs) > 0 else torch.zeros(2, 0, dtype=torch.long)
     n_edges = edge_index.shape[1]
     edge_attr = torch.randn(n_edges, 10)  # 10 edge features
 
