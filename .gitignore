@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+
+# Large generated data — do not commit
+data/processed/*
+!data/processed/.gitkeep
+data/normalization_stats.pt
+data/baseline/*
+!data/baseline/.gitkeep
+
+# Model outputs — do not commit
+outputs/plots/*
+!outputs/plots/.gitkeep
+outputs/debug/*
+!outputs/debug/.gitkeep
+outputs/runs/
+checkpoints/*
+!checkpoints/.gitkeep
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Editor / OS
+.DS_Store
+.vscode/
+*.swp
+*.swo
+*~
+
+# --- Files that SHOULD be committed ---
+# data/crystal_geometry.csv    -- static detector geometry, commit this
+# data/crystal_neighbors.csv   -- static crystal adjacency, commit this
+# splits/train_files.txt       -- frozen split, commit this
+# splits/val_files.txt
+# splits/test_files.txt

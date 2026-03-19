@@ -1,0 +1,59 @@
+# Default configuration for GNN calorimeter clustering
+# Override individual keys on the command line or by creating a separate YAML
+# that includes this one.
+
+data:
+  primaries_root: /pnfs/mu2e/persistent/datasets/phy-nts/nts/mu2e/FlateMinusOnSpillTriggered/MDC2020aw_best_v1_3_v06_06_00/root/
+  mixed_root:     /pnfs/mu2e/persistent/datasets/phy-nts/nts/mu2e/FlateMinusMix1BBTriggered/MDC2025-001/root/
+  crystal_geometry: data/crystal_geometry.csv
+  crystal_neighbors: data/crystal_neighbors.csv
+  processed_dir:  data/processed/
+  normalization_stats: data/normalization_stats.pt
+  splits:
+    train: splits/train_files.txt
+    val:   splits/val_files.txt
+    test:  splits/test_files.txt
+  # Truth label mode: "bfs_pseudo" (use clusterIdx_) or "mc_truth" (use CaloHitMC)
+  truth_mode: bfs_pseudo
+
+graph:
+  # Hybrid radius + kNN strategy
+  r_max_mm: 150.0         # radius graph cutoff (mm, disk-local frame)
+  dt_max_ns: 25.0         # maximum |Δt| for any edge (ns)
+  k_min: 3                # minimum neighbors for isolated nodes (kNN fallback)
+  k_max: 20               # degree cap per node (keeps dense events tractable)
+  # Alternative: topology-based graph from crystal_neighbors.csv
+  # Set use_topology_graph: true to use neighbors()/nextNeighbors() instead of radius
+  use_topology_graph: false
+
+model:
+  name: SimpleEdgeNet      # or CaloClusterNetV1
+  hidden_dim: 64           # SimpleEdgeNet; use 96 for CaloClusterNetV1
+  n_mp_layers: 3           # message-passing rounds
+
+train:
+  optimizer: adamw
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  scheduler: plateau       # ReduceLROnPlateau on val pairwise F1
+  epochs: 100
+  early_stop_patience: 15
+  batch_size: 32           # graphs per batch
+  # Class imbalance
+  neg_pos_ratio: 5         # subsample negatives during training (5:1)
+  # Multi-task loss weights (Stage 1: edge only; Stage 2+: add node)
+  lambda_edge: 1.0
+  lambda_node: 0.0         # set to 0.3 for Stage 2
+  lambda_cons: 0.0         # set to 0.05 for Stage 3
+
+inference:
+  # Tuned on val set — do not change after test evaluation begins
+  tau_node: 0.5
+  tau_edge: 0.5
+  min_hits: 2
+  min_energy_mev: 10.0
+
+output:
+  run_dir: outputs/runs/
+  checkpoint_dir: checkpoints/
+  debug_dir: outputs/debug/
