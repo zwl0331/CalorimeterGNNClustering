@@ -8,8 +8,8 @@ __pycache__/
 data/processed/*
 !data/processed/.gitkeep
 data/normalization_stats.pt
-data/baseline/*
-!data/baseline/.gitkeep
+data/baseline/bfs_benchmark.csv
+data/baseline/bfs_cluster_summary.csv
 
 # Model outputs — do not commit
 outputs/plots/*
