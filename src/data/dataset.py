@@ -195,7 +195,6 @@ class CaloGraphDataset(Dataset):
 
     def __init__(self, processed_dir, file_list=None, transform=None):
         self._processed_dir = Path(processed_dir)
-        self._transform = transform
 
         # Collect all .pt files
         all_files = sorted(self._processed_dir.glob("*.pt"))
@@ -210,7 +209,12 @@ class CaloGraphDataset(Dataset):
         else:
             self._files = all_files
 
-        # Don't call super().__init__() — we manage our own file list
+        # Don't call super().__init__() — we manage our own file list.
+        # But PyG Dataset needs certain attributes, so set them manually.
+        self._indices = None
+        self.transform = transform
+        self.pre_transform = None
+        self.pre_filter = None
 
     @staticmethod
     def _source_stem(pt_path):
@@ -225,10 +229,7 @@ class CaloGraphDataset(Dataset):
         return len(self._files)
 
     def get(self, idx):
-        data = torch.load(self._files[idx], weights_only=False)
-        if self._transform is not None:
-            data = self._transform(data)
-        return data
+        return torch.load(self._files[idx], weights_only=False)
 
     @property
     def file_paths(self):
