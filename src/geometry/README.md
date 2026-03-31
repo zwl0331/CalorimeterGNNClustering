@@ -1,46 +1,24 @@
-# Crystal Geometry Dump (Task 0)
+# Crystal Geometry (Task 0)
 
-This directory will contain a one-time C++ art module that reads the Mu2e
-calorimeter geometry service and writes `data/crystal_geometry.csv` and
-`data/crystal_neighbors.csv`.
+This module provides crystal position and neighbor lookups for the Mu2e calorimeter.
 
-## Why this is needed
+## Data files
 
-The EventNtuple `calohits` branch stores only `crystalId_` — no (x,y) positions.
-Crystal positions come from the Mu2e geometry service (C++ only, via `GeomHandle`).
+- `data/crystal_map_raw.csv` — Full crystal/SiPM channel map (2740 rows). Source of truth.
+- `data/crystal_geometry.csv` — Derived: `crystalId,diskId,x_mm,y_mm` for 1348 crystals (1344 CAL + 4 CAPHRI).
+- `data/crystal_neighbors.csv` — Derived: `crystalId,neighbors` (immediate geometric neighbors within 1.5× crystal pitch ≈ 51.5 mm).
 
-## What will be produced
+All three files are static for the MDC2020 geometry and committed to the repo.
 
-`data/crystal_geometry.csv`:
+## CAPHRI crystals
+
+4 crystal bars (IDs 582, 609, 610, 637) are **not CsI** — they are CAPHRI type, all on disk 0.
+
+## Python API
+
+```python
+from src.geometry.crystal_geometry import load_crystal_map, load_neighbor_map
+
+crystal_map = load_crystal_map()    # {crystalId: (diskId, x_mm, y_mm)}
+neighbor_map = load_neighbor_map()  # {crystalId: [neighbor_ids]}
 ```
-crystalId,diskId,x_mm,y_mm
-0,0,-417.7,273.7
-1,0,...
-...
-```
-
-`data/crystal_neighbors.csv`:
-```
-crystalId,neighbors
-0,1;2;3;4
-1,0;2;5;...
-...
-```
-Neighbors = immediate ring + next ring (`neighbors()` + `nextNeighbors()` from Offline).
-
-## How to run (once, requires muse setup Offline)
-
-```bash
-source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh
-cd /exp/mu2e/app/users/wzhou2/working_dir
-muse setup Offline
-mu2e -c /path/to/this/project/src/geometry/dump_crystal_geometry.fcl
-```
-
-The output CSV files go to `data/` and should be committed to the repository.
-They are static for a given detector configuration (MDC2020 geometry).
-
-## Files to create (pending)
-
-- `DumpCrystalGeometry_module.cc` — art EDAnalyzer that loops `cal.nCrystals()`
-- `dump_crystal_geometry.fcl` — FCL to run it with standard services

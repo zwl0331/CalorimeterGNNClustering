@@ -1,19 +1,16 @@
 """
 Crystal geometry loader.
 
-Reads data/crystal_geometry.csv (produced once by the C++ geometry dump module)
+Reads data/crystal_geometry.csv (derived from data/crystal_map_raw.csv)
 and provides fast lookup from crystalId to (disk, x, y) in the disk-local frame.
-
-The disk-local frame is the same coordinate system used by caloclusters.cog_.data[3]
-in the EventNtuple, so no additional coordinate transform is needed.
 """
 
 import csv
 from pathlib import Path
 
 # Default path relative to project root
-_DEFAULT_CSV = Path(__file__).parents[3] / "data" / "crystal_geometry.csv"
-_DEFAULT_NEIGHBORS_CSV = Path(__file__).parents[3] / "data" / "crystal_neighbors.csv"
+_DEFAULT_CSV = Path(__file__).parents[2] / "data" / "crystal_geometry.csv"
+_DEFAULT_NEIGHBORS_CSV = Path(__file__).parents[2] / "data" / "crystal_neighbors.csv"
 
 
 def load_crystal_map(csv_path=None):
