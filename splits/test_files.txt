@@ -1,0 +1,8 @@
+/pnfs/mu2e/tape/phy-nts/nts/mu2e/FlateMinusMix1BBTriggered/MDC2025-002/root/04/2a/nts.mu2e.FlateMinusMix1BBTriggered.MDC2025-002.001430_00000003.root
+/pnfs/mu2e/tape/phy-nts/nts/mu2e/FlateMinusMix1BBTriggered/MDC2025-002/root/17/7a/nts.mu2e.FlateMinusMix1BBTriggered.MDC2025-002.001430_00000001.root
+/pnfs/mu2e/tape/phy-nts/nts/mu2e/FlateMinusMix1BBTriggered/MDC2025-002/root/29/7e/nts.mu2e.FlateMinusMix1BBTriggered.MDC2025-002.001430_00000198.root
+/pnfs/mu2e/tape/phy-nts/nts/mu2e/FlateMinusMix1BBTriggered/MDC2025-002/root/37/25/nts.mu2e.FlateMinusMix1BBTriggered.MDC2025-002.001430_00000121.root
+/pnfs/mu2e/tape/phy-nts/nts/mu2e/FlateMinusMix1BBTriggered/MDC2025-002/root/3c/20/nts.mu2e.FlateMinusMix1BBTriggered.MDC2025-002.001430_00000012.root
+/pnfs/mu2e/tape/phy-nts/nts/mu2e/FlateMinusMix1BBTriggered/MDC2025-002/root/9b/db/nts.mu2e.FlateMinusMix1BBTriggered.MDC2025-002.001430_00000019.root
+/pnfs/mu2e/tape/phy-nts/nts/mu2e/FlateMinusMix1BBTriggered/MDC2025-002/root/ab/a0/nts.mu2e.FlateMinusMix1BBTriggered.MDC2025-002.001430_00000027.root
+/pnfs/mu2e/tape/phy-nts/nts/mu2e/FlateMinusMix1BBTriggered/MDC2025-002/root/f1/fd/nts.mu2e.FlateMinusMix1BBTriggered.MDC2025-002.001430_00000037.root
