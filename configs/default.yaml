@@ -19,7 +19,7 @@ data:
 graph:
   # Hybrid radius + kNN strategy (implemented with scipy.spatial.cKDTree —
   # torch-cluster / radius_graph is NOT available in this environment)
-  r_max_mm: 150.0         # radius graph cutoff (mm, disk-local frame)
+  r_max_mm: 210.0         # radius graph cutoff (mm, disk-local frame)
   dt_max_ns: 25.0         # maximum |Δt| for any edge (ns)
   k_min: 3                # minimum neighbors for isolated nodes (kNN fallback)
   k_max: 20               # degree cap per node (keeps dense events tractable)
