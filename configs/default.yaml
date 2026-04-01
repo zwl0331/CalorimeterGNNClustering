@@ -3,8 +3,6 @@
 # that includes this one.
 
 data:
-  primaries_root: /pnfs/mu2e/persistent/datasets/phy-nts/nts/mu2e/FlateMinusOnSpillTriggered/MDC2020aw_best_v1_3_v06_06_00/root/
-  mixed_root:     /pnfs/mu2e/persistent/datasets/phy-nts/nts/mu2e/FlateMinusMix1BBTriggered/MDC2025-001/root/
   crystal_geometry: data/crystal_geometry.csv
   crystal_neighbors: data/crystal_neighbors.csv
   processed_dir:  data/processed/
@@ -13,9 +11,6 @@ data:
     train: splits/train_files.txt
     val:   splits/val_files.txt
     test:  splits/test_files.txt
-  # Truth label mode: "bfs_pseudo" (use clusterIdx_) or "mc_truth" (use CaloHitMC)
-  truth_mode: bfs_pseudo
-
 graph:
   # Hybrid radius + kNN strategy (implemented with scipy.spatial.cKDTree —
   # torch-cluster / radius_graph is NOT available in this environment)

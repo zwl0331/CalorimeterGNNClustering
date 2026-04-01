@@ -1,45 +1,10 @@
 """Truth labeling for edge classification in GNN calorimeter clustering.
 
-Two modes:
-  1. BFS pseudo-truth: uses reco cluster assignments (calohits.clusterIdx_)
-  2. MC truth: uses SimParticle IDs and energy deposits from calohitsmc
+Uses SimParticle IDs and energy deposits from calohitsmc (MDC2025-002)
+to assign per-hit truth clusters and per-edge truth labels.
 """
 
 import numpy as np
-
-
-def assign_bfs_truth(cluster_idx, edge_index):
-    """Assign edge labels from BFS reco cluster assignments.
-
-    Args:
-        cluster_idx: np.ndarray of shape (n_hits,), int. -1 = unassigned.
-        edge_index: np.ndarray of shape (2, n_edges), int.
-
-    Returns:
-        y_edge: np.ndarray of shape (n_edges,), int (0 or 1).
-            1 if both hits belong to the same cluster.
-        edge_mask: np.ndarray of shape (n_edges,), bool.
-            True = valid edge (both hits assigned). Use to mask the loss.
-    """
-    cluster_idx = np.asarray(cluster_idx)
-    edge_index = np.asarray(edge_index)
-
-    src = edge_index[0]
-    dst = edge_index[1]
-
-    ci_src = cluster_idx[src]
-    ci_dst = cluster_idx[dst]
-
-    # Both hits must be assigned (not -1)
-    edge_mask = (ci_src != -1) & (ci_dst != -1)
-
-    # Same cluster → positive edge
-    y_edge = (ci_src == ci_dst).astype(np.int64)
-
-    # Masked edges get label 0 (won't matter since they're masked)
-    y_edge[~edge_mask] = 0
-
-    return y_edge, edge_mask
 
 
 def assign_mc_truth(sim_particle_ids, edeps, hit_disks, edge_index,

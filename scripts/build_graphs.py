@@ -75,7 +75,6 @@ def main():
 
     crystal_map = load_crystal_map(config["data"]["crystal_geometry"])
     graph_cfg = config["graph"]
-    truth_mode = config["data"].get("truth_mode", "bfs_pseudo")
     out_dir = Path(config["data"]["processed_dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -94,7 +93,7 @@ def main():
 
         for data, ev_idx, disk_id, diag in extract_events_from_file(
             filepath, crystal_map, graph_cfg,
-            truth_mode=truth_mode, max_events=args.n_events,
+            max_events=args.n_events,
         ):
             out_name = f"{fname}_evt{ev_idx:06d}_disk{disk_id}.pt"
             out_path = out_dir / out_name

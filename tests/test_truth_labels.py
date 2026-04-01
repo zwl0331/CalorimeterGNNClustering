@@ -8,78 +8,8 @@ from pathlib import Path
 # Ensure project root is on the path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.data.truth_labels import assign_bfs_truth, assign_mc_truth
+from src.data.truth_labels import assign_mc_truth
 
-
-# ───────────────────────────────────────────────────────────────────
-# BFS pseudo-truth tests
-# ───────────────────────────────────────────────────────────────────
-
-class TestAssignBfsTruth(unittest.TestCase):
-    """Tests for assign_bfs_truth()."""
-
-    def test_same_cluster_positive(self):
-        """Two hits in the same cluster → edge label 1."""
-        cluster_idx = np.array([0, 0, 1])
-        edge_index = np.array([[0, 1], [1, 0]])  # 0↔1
-        y, mask = assign_bfs_truth(cluster_idx, edge_index)
-        assert mask.all(), "Both hits assigned → both edges valid"
-        assert (y == 1).all(), "Same cluster → label 1"
-
-    def test_different_cluster_negative(self):
-        """Two hits in different clusters → edge label 0."""
-        cluster_idx = np.array([0, 1])
-        edge_index = np.array([[0, 1], [1, 0]])
-        y, mask = assign_bfs_truth(cluster_idx, edge_index)
-        assert mask.all()
-        assert (y == 0).all()
-
-    def test_unassigned_hit_masked(self):
-        """Hit with clusterIdx -1 → edge masked out."""
-        cluster_idx = np.array([0, -1, 0])
-        edge_index = np.array([[0, 1, 0, 2], [1, 0, 2, 0]])
-        y, mask = assign_bfs_truth(cluster_idx, edge_index)
-        # Edges 0↔1 involve hit 1 (unassigned) → masked
-        assert not mask[0] and not mask[1]
-        # Edges 0↔2 are both assigned to cluster 0 → valid, label 1
-        assert mask[2] and mask[3]
-        assert y[2] == 1 and y[3] == 1
-
-    def test_all_unassigned(self):
-        """All hits unassigned → all edges masked."""
-        cluster_idx = np.array([-1, -1, -1])
-        edge_index = np.array([[0, 1, 2], [1, 2, 0]])
-        y, mask = assign_bfs_truth(cluster_idx, edge_index)
-        assert not mask.any()
-
-    def test_empty_graph(self):
-        """No edges → empty arrays returned."""
-        cluster_idx = np.array([0, 1])
-        edge_index = np.empty((2, 0), dtype=np.int64)
-        y, mask = assign_bfs_truth(cluster_idx, edge_index)
-        assert len(y) == 0
-        assert len(mask) == 0
-
-    def test_output_shapes(self):
-        """Output shapes match number of edges."""
-        cluster_idx = np.array([0, 0, 1, 1, 2])
-        edge_index = np.array([[0, 1, 2, 3, 4], [1, 2, 3, 4, 0]])
-        y, mask = assign_bfs_truth(cluster_idx, edge_index)
-        assert y.shape == (5,)
-        assert mask.shape == (5,)
-
-    def test_output_dtypes(self):
-        """y_edge is int64, edge_mask is bool."""
-        cluster_idx = np.array([0, 0])
-        edge_index = np.array([[0], [1]])
-        y, mask = assign_bfs_truth(cluster_idx, edge_index)
-        assert y.dtype == np.int64
-        assert mask.dtype == bool
-
-
-# ───────────────────────────────────────────────────────────────────
-# MC truth tests
-# ───────────────────────────────────────────────────────────────────
 
 class TestAssignMcTruth(unittest.TestCase):
     """Tests for assign_mc_truth()."""

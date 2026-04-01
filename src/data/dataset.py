@@ -21,29 +21,24 @@ from src.data.graph_builder import (
     compute_edge_features,
     compute_node_features,
 )
-from src.data.truth_labels import assign_bfs_truth, assign_mc_truth
+from src.data.truth_labels import assign_mc_truth
 from src.geometry.crystal_geometry import load_crystal_map
 
 
 # MDC2025-002 branches
-_BRANCHES_RECO = [
+_BRANCHES = [
     "calohits.crystalId_",
     "calohits.eDep_",
     "calohits.time_",
-    "calohits.clusterIdx_",
     "calohits.crystalPos_.fCoordinates.fX",
     "calohits.crystalPos_.fCoordinates.fY",
-]
-
-_BRANCHES_MC = [
     "calohitsmc.simParticleIds",
     "calohitsmc.eDeps",
     "calohitsmc.nsim",
 ]
 
 
-def extract_events_from_file(filepath, crystal_map, graph_cfg, truth_mode="bfs_pseudo",
-                             max_events=None):
+def extract_events_from_file(filepath, crystal_map, graph_cfg, max_events=None):
     """Read one ROOT file and yield PyG Data objects (one per disk per event).
 
     Parameters
@@ -54,8 +49,6 @@ def extract_events_from_file(filepath, crystal_map, graph_cfg, truth_mode="bfs_p
         crystalId -> (diskId, x_mm, y_mm).
     graph_cfg : dict
         Graph construction parameters (r_max_mm, dt_max_ns, k_min, k_max).
-    truth_mode : str
-        "bfs_pseudo" or "mc_truth".
     max_events : int or None
         Limit number of events to read.
 
@@ -69,12 +62,8 @@ def extract_events_from_file(filepath, crystal_map, graph_cfg, truth_mode="bfs_p
     """
     import uproot
 
-    branches = list(_BRANCHES_RECO)
-    if truth_mode == "mc_truth":
-        branches += _BRANCHES_MC
-
     tree = uproot.open(str(filepath) + ":EventNtuple/ntuple")
-    arrays = tree.arrays(branches, entry_stop=max_events)
+    arrays = tree.arrays(_BRANCHES, entry_stop=max_events)
     n_events = len(arrays)
 
     r_max = graph_cfg.get("r_max_mm", 150.0)
@@ -90,7 +79,6 @@ def extract_events_from_file(filepath, crystal_map, graph_cfg, truth_mode="bfs_p
         cryids = np.array(arrays["calohits.crystalId_"][ev], dtype=np.int64)
         energies = np.array(arrays["calohits.eDep_"][ev], dtype=np.float64)
         times = np.array(arrays["calohits.time_"][ev], dtype=np.float64)
-        cluster_idx = np.array(arrays["calohits.clusterIdx_"][ev], dtype=np.int64)
 
         # Get positions — prefer in-file crystal positions (MDC2025-002)
         has_pos = "calohits.crystalPos_.fCoordinates.fX" in arrays.fields
@@ -113,9 +101,8 @@ def extract_events_from_file(filepath, crystal_map, graph_cfg, truth_mode="bfs_p
                     _, xs[i], ys[i] = crystal_map[c]
 
         # MC truth data
-        if truth_mode == "mc_truth":
-            sim_ids = arrays["calohitsmc.simParticleIds"][ev]
-            edeps_mc = arrays["calohitsmc.eDeps"][ev]
+        sim_ids = arrays["calohitsmc.simParticleIds"][ev]
+        edeps_mc = arrays["calohitsmc.eDeps"][ev]
 
         # Process each disk separately
         for disk_id in [0, 1]:
@@ -129,7 +116,6 @@ def extract_events_from_file(filepath, crystal_map, graph_cfg, truth_mode="bfs_p
             d_xs = xs[disk_mask]
             d_ys = ys[disk_mask]
             d_positions = np.stack([d_xs, d_ys], axis=1)
-            d_cluster_idx = cluster_idx[disk_mask]
 
             # Build graph
             edge_index, diag = build_graph(
@@ -145,24 +131,16 @@ def extract_events_from_file(filepath, crystal_map, graph_cfg, truth_mode="bfs_p
             # Edge features (8-dim)
             edge_feat = compute_edge_features(d_positions, d_times, d_energies, edge_index)
 
-            # Truth labels
-            if truth_mode == "bfs_pseudo":
-                y_edge, edge_mask = assign_bfs_truth(d_cluster_idx, edge_index)
-                y_node = (d_cluster_idx >= 0).astype(np.int64)
-                hit_truth_cluster = d_cluster_idx.copy()
-            elif truth_mode == "mc_truth":
-                # Get MC data for this disk's hits
-                disk_indices = np.where(disk_mask)[0]
-                d_sim_ids = [list(sim_ids[i]) for i in disk_indices]
-                d_edeps_mc = [list(edeps_mc[i]) for i in disk_indices]
-                d_disks = np.full(n_disk, disk_id, dtype=np.int64)
+            # Truth labels (MC truth from SimParticle IDs)
+            disk_indices = np.where(disk_mask)[0]
+            d_sim_ids = [list(sim_ids[i]) for i in disk_indices]
+            d_edeps_mc = [list(edeps_mc[i]) for i in disk_indices]
+            d_disks = np.full(n_disk, disk_id, dtype=np.int64)
 
-                y_edge, edge_mask, hit_truth_cluster, is_ambiguous = assign_mc_truth(
-                    d_sim_ids, d_edeps_mc, d_disks, edge_index,
-                )
-                y_node = (~is_ambiguous).astype(np.int64)
-            else:
-                raise ValueError(f"Unknown truth_mode: {truth_mode}")
+            y_edge, edge_mask, hit_truth_cluster, is_ambiguous = assign_mc_truth(
+                d_sim_ids, d_edeps_mc, d_disks, edge_index,
+            )
+            y_node = (~is_ambiguous).astype(np.int64)
 
             # Build PyG Data
             data = Data(
@@ -191,9 +169,13 @@ class CaloGraphDataset(Dataset):
     file_list : list[str] or None
         If given, only load graphs from these source ROOT files
         (for split-aware loading). Matches on source filename stem.
+    preload : bool
+        If True, load all graphs into memory on init. Much faster for
+        training when the dataset fits in RAM (~7 KB/graph).
     """
 
-    def __init__(self, processed_dir, file_list=None, transform=None):
+    def __init__(self, processed_dir, file_list=None, transform=None,
+                 preload=False):
         self._processed_dir = Path(processed_dir)
 
         # Collect all .pt files
@@ -216,6 +198,14 @@ class CaloGraphDataset(Dataset):
         self.pre_transform = None
         self.pre_filter = None
 
+        # Preload into memory to avoid per-graph file I/O during training
+        self._cache = None
+        if preload:
+            print(f"  Preloading {len(self._files)} graphs into memory...",
+                  end=" ", flush=True)
+            self._cache = [torch.load(f, weights_only=False) for f in self._files]
+            print("done.")
+
     @staticmethod
     def _source_stem(pt_path):
         """Extract source ROOT file stem from .pt filename."""
@@ -229,6 +219,8 @@ class CaloGraphDataset(Dataset):
         return len(self._files)
 
     def get(self, idx):
+        if self._cache is not None:
+            return self._cache[idx]
         return torch.load(self._files[idx], weights_only=False)
 
     @property
