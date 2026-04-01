@@ -5,15 +5,16 @@
 # Uses 500 events/file → ~50K graphs total, takes ~10 min.
 # To use all events, remove the --n-events flag (will take ~4 hours).
 
-set -e
 cd /exp/mu2e/app/users/wzhou2/projects/calorimeter/GNN
 source setup_env.sh
+set -e
 
 ROOT_DIR=/exp/mu2e/data/users/wzhou2/GNN/root_files
 N_EVENTS=500
 
 echo "=== Clearing old processed data ==="
-rm -f data/processed/*.pt data/processed/*.csv
+find data/processed/ -name '*.pt' -delete 2>/dev/null || true
+find data/processed/ -name '*.csv' -delete 2>/dev/null || true
 
 echo ""
 echo "=== Building train graphs (35 files, $N_EVENTS events each) ==="
