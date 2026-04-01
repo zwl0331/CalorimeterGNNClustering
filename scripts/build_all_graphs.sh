@@ -30,5 +30,5 @@ python3 scripts/build_graphs.py --split test --root-dir "$ROOT_DIR" --n-events "
 
 echo ""
 echo "=== Done ==="
-echo "Total .pt files: $(ls data/processed/*.pt | wc -l)"
+echo "Total .pt files: $(find data/processed/ -name '*.pt' | wc -l)"
 echo "Disk usage: $(du -sh data/processed/ | cut -f1)"

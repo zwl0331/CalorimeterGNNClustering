@@ -107,26 +107,15 @@ def main():
     with open(run_dir / "metadata.json", "w") as f:
         json.dump(meta, f, indent=2)
 
-    # Load normalization stats
-    stats_path = cfg["data"]["normalization_stats"]
-    print(f"Loading normalization stats from {stats_path}")
-    stats = load_stats(stats_path)
-
-    # Normalization transform
-    def norm_transform(data):
-        return normalize_graph(data, stats)
-
-    # Load datasets
+    # Load datasets — preload into memory to avoid per-file I/O bottleneck
     processed_dir = cfg["data"]["processed_dir"]
     train_files = load_split_files(cfg["data"]["splits"]["train"])
     val_files = load_split_files(cfg["data"]["splits"]["val"])
 
     print(f"Loading train dataset from {processed_dir}")
-    train_dataset = CaloGraphDataset(processed_dir, file_list=train_files,
-                                     transform=norm_transform)
+    train_dataset = CaloGraphDataset(processed_dir, file_list=train_files, preload=True)
     print(f"Loading val dataset from {processed_dir}")
-    val_dataset = CaloGraphDataset(processed_dir, file_list=val_files,
-                                   transform=norm_transform)
+    val_dataset = CaloGraphDataset(processed_dir, file_list=val_files, preload=True)
 
     print(f"  Train: {len(train_dataset)} graphs")
     print(f"  Val:   {len(val_dataset)} graphs")
@@ -135,12 +124,20 @@ def main():
         print("ERROR: No training graphs found. Run build_graphs.py first.")
         sys.exit(1)
 
-    # Compute class weights from training set (unnormalized for label counting)
-    train_raw = CaloGraphDataset(processed_dir, file_list=train_files)
-    cw = compute_class_weights(train_raw)
+    # Compute class weights before normalization
+    cw = compute_class_weights(train_dataset)
     pos_weight = cw["pos_weight"]
     print(f"  Class balance: {cw['n_pos']} pos, {cw['n_neg']} neg "
           f"(pos_weight={pos_weight.item():.3f})")
+
+    # Apply normalization in-place to cached data
+    stats_path = cfg["data"]["normalization_stats"]
+    print(f"Loading normalization stats from {stats_path}")
+    stats = load_stats(stats_path)
+    for data in train_dataset._cache:
+        normalize_graph(data, stats)
+    for data in val_dataset._cache:
+        normalize_graph(data, stats)
 
     # Build model
     model = build_model(cfg)
