@@ -175,14 +175,33 @@ class CaloGraphDataset(Dataset):
     """
 
     def __init__(self, processed_dir, file_list=None, transform=None,
-                 preload=False):
+                 preload=False, packed_path=None):
         self._processed_dir = Path(processed_dir)
 
-        # Collect all .pt files
+        # Don't call super().__init__() — we manage our own file list.
+        # But PyG Dataset needs certain attributes, so set them manually.
+        self._indices = None
+        self.transform = transform
+        self.pre_transform = None
+        self.pre_filter = None
+        self._cache = None
+
+        # Fast path: load from a single packed file (e.g. train.pt)
+        if packed_path is not None and Path(packed_path).exists():
+            print(f"  Loading packed file {packed_path}...",
+                  end=" ", flush=True)
+            self._cache = torch.load(packed_path, weights_only=False)
+            self._files = list(range(len(self._cache)))  # dummy
+            print(f"done ({len(self._cache)} graphs).")
+            return
+
+        # Standard path: discover individual .pt files
         all_files = sorted(self._processed_dir.glob("*.pt"))
+        # Exclude packed split files from individual file listing
+        packed_names = {"train.pt", "val.pt", "test.pt"}
+        all_files = [f for f in all_files if f.name not in packed_names]
 
         if file_list is not None:
-            # Filter to graphs from specific source files
             allowed_stems = set()
             for f in file_list:
                 allowed_stems.add(Path(f).stem)
@@ -191,19 +210,11 @@ class CaloGraphDataset(Dataset):
         else:
             self._files = all_files
 
-        # Don't call super().__init__() — we manage our own file list.
-        # But PyG Dataset needs certain attributes, so set them manually.
-        self._indices = None
-        self.transform = transform
-        self.pre_transform = None
-        self.pre_filter = None
-
-        # Preload into memory to avoid per-graph file I/O during training
-        self._cache = None
         if preload:
             print(f"  Preloading {len(self._files)} graphs into memory...",
                   end=" ", flush=True)
-            self._cache = [torch.load(f, weights_only=False) for f in self._files]
+            self._cache = [torch.load(f, weights_only=False)
+                           for f in self._files]
             print("done.")
 
     @staticmethod

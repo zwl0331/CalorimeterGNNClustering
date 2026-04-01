@@ -112,10 +112,20 @@ def main():
     train_files = load_split_files(cfg["data"]["splits"]["train"])
     val_files = load_split_files(cfg["data"]["splits"]["val"])
 
+    # Use packed files if available (single torch.load vs 29K individual loads)
+    train_packed = Path(processed_dir) / "train.pt"
+    val_packed = Path(processed_dir) / "val.pt"
+
     print(f"Loading train dataset from {processed_dir}")
-    train_dataset = CaloGraphDataset(processed_dir, file_list=train_files, preload=True)
+    train_dataset = CaloGraphDataset(
+        processed_dir, file_list=train_files, preload=True,
+        packed_path=train_packed if train_packed.exists() else None,
+    )
     print(f"Loading val dataset from {processed_dir}")
-    val_dataset = CaloGraphDataset(processed_dir, file_list=val_files, preload=True)
+    val_dataset = CaloGraphDataset(
+        processed_dir, file_list=val_files, preload=True,
+        packed_path=val_packed if val_packed.exists() else None,
+    )
 
     print(f"  Train: {len(train_dataset)} graphs")
     print(f"  Val:   {len(val_dataset)} graphs")
