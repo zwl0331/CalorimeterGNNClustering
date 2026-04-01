@@ -9,6 +9,7 @@ Usage:
     python3 scripts/build_graphs.py --split train --n-files 5
     python3 scripts/build_graphs.py --split train   # all files in split
     python3 scripts/build_graphs.py --split all --n-files 3  # ignore splits, use first N files
+    python3 scripts/build_graphs.py --split train --root-dir /exp/mu2e/data/users/wzhou2/GNN/root_files
 """
 
 import argparse
@@ -54,6 +55,8 @@ def main():
                         help="Max events per file")
     parser.add_argument("--config", type=str, default="configs/default.yaml",
                         help="Config file path")
+    parser.add_argument("--root-dir", type=str, default=None,
+                        help="Local directory containing ROOT files (remaps split paths)")
     parser.add_argument("--compute-norm", action="store_true",
                         help="Compute normalization stats (train split only)")
     args = parser.parse_args()
@@ -62,6 +65,9 @@ def main():
         config = yaml.safe_load(f)
 
     files = load_file_list(args.split, config)
+    if args.root_dir:
+        root_dir = Path(args.root_dir)
+        files = [str(root_dir / Path(f).name) for f in files]
     if args.n_files:
         files = files[:args.n_files]
 

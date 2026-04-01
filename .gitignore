@@ -11,6 +11,9 @@ data/normalization_stats.pt
 data/baseline/bfs_benchmark.csv
 data/baseline/bfs_cluster_summary.csv
 
+# Build logs
+logs/
+
 # Model outputs — do not commit
 outputs/plots/*
 !outputs/plots/.gitkeep
