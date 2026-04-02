@@ -26,6 +26,9 @@ outputs/runs/
 outputs/crystal_map/
 outputs/event_display/
 outputs/graph_gate/
+outputs/threshold_sweep/
+outputs/test_eval/
+outputs/gnn_cluster_display/
 checkpoints/*
 !checkpoints/.gitkeep
 

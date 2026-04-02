@@ -1,0 +1,549 @@
+#!/usr/bin/env python3
+"""
+GNN cluster visualization: 3-panel crystal-map event displays.
+
+For each selected event/disk, plots side-by-side:
+  Panel 1: MC truth clusters
+  Panel 2: BFS reco clusters (from EventNtuple)
+  Panel 3: GNN predicted clusters (with edge probability gradient)
+
+Covers plan tasks 7e (debug visualization) and 7f (GNN cluster display).
+
+Usage:
+    source setup_env.sh
+
+    # Plot first 6 events from val split
+    python3 scripts/plot_gnn_clusters.py
+
+    # Specific events from test split
+    python3 scripts/plot_gnn_clusters.py --split test --event-indices 0 5 10
+
+    # Auto-find failure cases (merges/splits)
+    python3 scripts/plot_gnn_clusters.py --find-failures --n-scan 200
+"""
+
+import argparse
+import csv
+import sys
+import time
+from collections import defaultdict
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import numpy as np
+import torch
+import yaml
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle, Patch
+from matplotlib.collections import PatchCollection, LineCollection
+from matplotlib.lines import Line2D
+import matplotlib.colors as mcolors
+
+from src.data.graph_builder import build_graph, compute_edge_features, compute_node_features
+from src.data.normalization import load_stats, normalize_graph
+from src.geometry.crystal_geometry import load_crystal_map
+from src.inference.cluster_reco import reconstruct_clusters
+from src.models.simple_edge_net import SimpleEdgeNet
+from torch_geometric.data import Data
+
+CRYSTAL_PITCH = 34.3
+CRYSTAL_SIZE = CRYSTAL_PITCH * 0.92
+
+CLUSTER_COLORS = [
+    "#e41a1c", "#377eb8", "#4daf4a", "#984ea3", "#ff7f00",
+    "#a65628", "#f781bf", "#999999", "#66c2a5", "#fc8d62",
+    "#8da0cb", "#e78ac3", "#a6d854", "#ffd92f", "#e5c494",
+    "#b3b3b3", "#1b9e77", "#d95f02", "#7570b3", "#e7298a",
+]
+UNCLUSTERED_COLOR = "#cccccc"
+
+# Red-to-green colormap for edge probabilities
+EDGE_CMAP = plt.cm.RdYlGn
+
+
+def build_mc_truth_clusters(simids, edeps, disks, nhits, purity_thresh=0.7):
+    """Build MC truth cluster labels per hit (-1 = ambiguous)."""
+    truth_labels = np.full(nhits, -1, dtype=np.int64)
+    cluster_map = {}
+    next_label = 0
+    for i in range(nhits):
+        sids = np.array(simids[i])
+        deps = np.array(edeps[i])
+        if len(sids) == 0 or deps.sum() <= 0:
+            continue
+        best = np.argmax(deps)
+        purity = deps[best] / deps.sum()
+        if purity < purity_thresh:
+            continue
+        key = (int(disks[i]), int(sids[best]))
+        if key not in cluster_map:
+            cluster_map[key] = next_label
+            next_label += 1
+        truth_labels[i] = cluster_map[key]
+    return truth_labels
+
+
+def detect_failures(pred_labels, truth_labels, energies):
+    """Detect merges and splits between pred and truth clusters."""
+    pred_ids = sorted(set(pred_labels[pred_labels >= 0].tolist()))
+    truth_ids = sorted(set(truth_labels[truth_labels >= 0].tolist()))
+    if not pred_ids or not truth_ids:
+        return [], []
+
+    overlap = defaultdict(lambda: defaultdict(float))
+    pred_energy = defaultdict(float)
+    for i in range(len(energies)):
+        p, t, e = pred_labels[i], truth_labels[i], energies[i]
+        if p >= 0:
+            pred_energy[p] += e
+        if p >= 0 and t >= 0:
+            overlap[p][t] += e
+
+    # Merges: pred cluster overlaps >1 truth cluster significantly
+    merged_preds = []
+    for p in pred_ids:
+        if p not in overlap:
+            continue
+        sig = [t for t, e in overlap[p].items()
+               if pred_energy[p] > 0 and e / pred_energy[p] > 0.1]
+        if len(sig) > 1:
+            merged_preds.append(p)
+
+    # Splits: truth cluster covered by >1 pred cluster
+    truth_to_pred = defaultdict(list)
+    for p in pred_ids:
+        if p not in overlap:
+            continue
+        for t, e in overlap[p].items():
+            if pred_energy[p] > 0 and e / pred_energy[p] > 0.5:
+                truth_to_pred[t].append(p)
+    split_truths = [t for t, ps in truth_to_pred.items() if len(ps) > 1]
+
+    return merged_preds, split_truths
+
+
+def assign_colors(labels):
+    """Map cluster labels to colors. -1 gets UNCLUSTERED_COLOR."""
+    unique = sorted(set(labels[labels >= 0].tolist()))
+    cmap = {cid: CLUSTER_COLORS[i % len(CLUSTER_COLORS)]
+            for i, cid in enumerate(unique)}
+    return cmap
+
+
+def draw_panel(ax, hit_x, hit_y, hit_energy, labels, disk_id, crystal_map,
+               title, edge_index=None, edge_probs=None,
+               merged_clusters=None, split_clusters=None, truth_labels=None):
+    """Draw one panel of the 3-panel display."""
+    half = CRYSTAL_SIZE / 2
+    n_hits = len(hit_x)
+    e_max = hit_energy.max() if hit_energy.max() > 0 else 1.0
+
+    # Background crystals
+    bg_patches = []
+    for cid, (did, cx, cy) in crystal_map.items():
+        if did != disk_id:
+            continue
+        bg_patches.append(Rectangle((cx - half, cy - half),
+                                     CRYSTAL_SIZE, CRYSTAL_SIZE))
+    pc_bg = PatchCollection(bg_patches, facecolor="#e8e8e8",
+                            edgecolor="#cccccc", linewidth=0.3, zorder=1)
+    ax.add_collection(pc_bg)
+
+    # Draw edges (only on GNN panel, colored by probability)
+    if edge_index is not None and edge_probs is not None:
+        lines = []
+        colors = []
+        seen = set()
+        for ei in range(edge_index.shape[1]):
+            s, d = edge_index[0, ei], edge_index[1, ei]
+            key = (min(s, d), max(s, d))
+            if key in seen:
+                continue
+            seen.add(key)
+            lines.append([(hit_x[s], hit_y[s]), (hit_x[d], hit_y[d])])
+            colors.append(EDGE_CMAP(edge_probs[ei]))
+        if lines:
+            lc = LineCollection(lines, colors=colors, linewidths=0.8,
+                                zorder=2, alpha=0.6)
+            ax.add_collection(lc)
+
+    # Color map for this panel's clusters
+    cmap = assign_colors(labels)
+
+    # Draw hit crystals
+    for i in range(n_hits):
+        cid = labels[i]
+        if cid >= 0:
+            color = cmap[cid]
+            alpha = 0.5 + 0.5 * (hit_energy[i] / e_max)
+        else:
+            color = UNCLUSTERED_COLOR
+            alpha = 0.5
+
+        # Mark merged/split clusters with thick border
+        lw = 1.0
+        ec = "black"
+        if merged_clusters and cid in merged_clusters:
+            lw = 2.5
+            ec = "red"
+        if split_clusters and truth_labels is not None:
+            tc = truth_labels[i]
+            if tc in split_clusters:
+                lw = 2.5
+                ec = "darkorange"
+
+        rect = Rectangle((hit_x[i] - half, hit_y[i] - half),
+                          CRYSTAL_SIZE, CRYSTAL_SIZE,
+                          facecolor=color, edgecolor=ec,
+                          linewidth=lw, alpha=alpha, zorder=4)
+        ax.add_patch(rect)
+
+        # Energy label
+        ax.text(hit_x[i], hit_y[i], f"{hit_energy[i]:.1f}",
+                fontsize=5, ha="center", va="center", color="black",
+                zorder=5, style="italic")
+
+    # Count clusters
+    unique_ids = sorted(set(labels[labels >= 0].tolist()))
+    n_clust = len(unique_ids)
+    n_unclust = (labels == -1).sum()
+    total_e = hit_energy.sum()
+
+    subtitle = f"{n_clust} clusters, {n_hits} hits, E={total_e:.0f} MeV"
+    if n_unclust > 0:
+        subtitle += f", {n_unclust} unclustered"
+    ax.set_title(f"{title}\n{subtitle}", fontsize=10)
+
+    ax.set_aspect("equal")
+    ax.set_facecolor("#f7f7f7")
+    ax.grid(True, linewidth=0.2, alpha=0.3, zorder=0)
+
+
+def plot_event_3panel(hit_x, hit_y, hit_energy, disk_id,
+                      truth_labels, bfs_labels, gnn_labels,
+                      edge_index, edge_probs,
+                      crystal_map, out_path, event_label=""):
+    """Plot 3-panel display: Truth | BFS | GNN."""
+    fig, axes = plt.subplots(1, 3, figsize=(36, 12))
+
+    # Detect GNN failure modes
+    merged_preds, split_truths = detect_failures(
+        gnn_labels, truth_labels, hit_energy)
+
+    # Compute axis limits from hit positions
+    pad = 80
+    xlim = (hit_x.min() - pad, hit_x.max() + pad)
+    ylim = (hit_y.min() - pad, hit_y.max() + pad)
+
+    # Panel 1: MC Truth
+    draw_panel(axes[0], hit_x, hit_y, hit_energy, truth_labels,
+               disk_id, crystal_map, "MC Truth")
+
+    # Panel 2: BFS
+    draw_panel(axes[1], hit_x, hit_y, hit_energy, bfs_labels,
+               disk_id, crystal_map, "BFS Reco")
+
+    # Panel 3: GNN
+    gnn_title = "GNN Predicted"
+    annotations = []
+    if merged_preds:
+        annotations.append(f"{len(merged_preds)} merge(s)")
+    if split_truths:
+        annotations.append(f"{len(split_truths)} split(s)")
+    if annotations:
+        gnn_title += f" [{', '.join(annotations)}]"
+
+    draw_panel(axes[2], hit_x, hit_y, hit_energy, gnn_labels,
+               disk_id, crystal_map, gnn_title,
+               edge_index=edge_index, edge_probs=edge_probs,
+               merged_clusters=set(merged_preds),
+               split_clusters=set(split_truths),
+               truth_labels=truth_labels)
+
+    # Set consistent limits
+    for ax in axes:
+        ax.set_xlim(*xlim)
+        ax.set_ylim(*ylim)
+
+    # Legend
+    legend_handles = [
+        Line2D([0], [0], color=EDGE_CMAP(0.0), linewidth=2,
+               label="Edge prob ~0 (different cluster)"),
+        Line2D([0], [0], color=EDGE_CMAP(1.0), linewidth=2,
+               label="Edge prob ~1 (same cluster)"),
+        Patch(facecolor=UNCLUSTERED_COLOR, edgecolor="black", linewidth=0.5,
+              label="Unclustered (label=-1)"),
+        Patch(facecolor="white", edgecolor="red", linewidth=2.5,
+              label="Merged cluster"),
+        Patch(facecolor="white", edgecolor="darkorange", linewidth=2.5,
+              label="Split cluster"),
+    ]
+    fig.legend(handles=legend_handles, loc="lower center", ncol=5,
+               fontsize=9, frameon=True, bbox_to_anchor=(0.5, -0.02))
+
+    fig.suptitle(event_label, fontsize=12, fontweight="bold", y=1.01)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
+def process_event_disk(arrays, ev, disk_id, crystal_map, graph_cfg,
+                       model, stats, device, tau_edge):
+    """Extract one event-disk, run GNN, return all data for plotting.
+
+    Returns None if the disk has < 2 hits.
+    """
+    nhits = len(arrays["calohits.crystalId_"][ev])
+    if nhits == 0:
+        return None
+
+    cryids = np.array(arrays["calohits.crystalId_"][ev], dtype=np.int64)
+    energies = np.array(arrays["calohits.eDep_"][ev], dtype=np.float64)
+    times = np.array(arrays["calohits.time_"][ev], dtype=np.float64)
+    cluster_idx = np.array(arrays["calohits.clusterIdx_"][ev], dtype=np.int64)
+    xs = np.array(arrays["calohits.crystalPos_.fCoordinates.fX"][ev],
+                  dtype=np.float64)
+    ys = np.array(arrays["calohits.crystalPos_.fCoordinates.fY"][ev],
+                  dtype=np.float64)
+    simids = arrays["calohitsmc.simParticleIds"][ev]
+    edeps_mc = arrays["calohitsmc.eDeps"][ev]
+
+    disks = np.array([crystal_map[int(c)][0] if int(c) in crystal_map
+                      else -1 for c in cryids], dtype=np.int64)
+
+    if np.all(xs == 0) and np.all(ys == 0):
+        for i, c in enumerate(cryids):
+            if int(c) in crystal_map:
+                _, xs[i], ys[i] = crystal_map[int(c)]
+
+    dm = disks == disk_id
+    n_disk = dm.sum()
+    if n_disk < 2:
+        return None
+
+    d_e = energies[dm]
+    d_t = times[dm]
+    d_x = xs[dm]
+    d_y = ys[dm]
+    d_pos = np.stack([d_x, d_y], axis=1)
+    d_cidx = cluster_idx[dm]
+    d_disks = np.full(n_disk, disk_id, dtype=np.int64)
+
+    disk_indices = np.where(dm)[0]
+    d_simids = [list(simids[i]) for i in disk_indices]
+    d_edeps = [list(edeps_mc[i]) for i in disk_indices]
+
+    mc_truth = build_mc_truth_clusters(d_simids, d_edeps, d_disks, n_disk)
+
+    # Build graph and run GNN
+    edge_index, _ = build_graph(
+        d_pos, d_t,
+        r_max=graph_cfg["r_max_mm"], dt_max=graph_cfg["dt_max_ns"],
+        k_min=graph_cfg["k_min"], k_max=graph_cfg["k_max"])
+
+    if edge_index.shape[1] == 0:
+        gnn_labels = np.arange(n_disk)
+        edge_probs = np.array([])
+        return {
+            "hit_x": d_x, "hit_y": d_y, "energies": d_e,
+            "truth_labels": mc_truth, "bfs_labels": d_cidx,
+            "gnn_labels": gnn_labels, "edge_index": edge_index,
+            "edge_probs": edge_probs, "disk_id": disk_id,
+        }
+
+    node_feat = compute_node_features(d_pos, d_t, d_e)
+    edge_feat = compute_edge_features(d_pos, d_t, d_e, edge_index)
+
+    data = Data(
+        x=torch.from_numpy(node_feat),
+        edge_index=torch.from_numpy(edge_index),
+        edge_attr=torch.from_numpy(edge_feat),
+    )
+    normalize_graph(data, stats)
+
+    with torch.no_grad():
+        logits = model(data.to(device))
+    logits_np = logits.cpu().numpy()
+    edge_probs = 1.0 / (1.0 + np.exp(-logits_np.astype(np.float64)))
+
+    gnn_labels, _ = reconstruct_clusters(
+        edge_index=edge_index, edge_logits=logits_np,
+        n_nodes=n_disk, energies=d_e,
+        tau_edge=tau_edge, min_hits=1, min_energy_mev=0.0)
+
+    return {
+        "hit_x": d_x, "hit_y": d_y, "energies": d_e,
+        "truth_labels": mc_truth, "bfs_labels": d_cidx,
+        "gnn_labels": gnn_labels, "edge_index": edge_index,
+        "edge_probs": edge_probs, "disk_id": disk_id,
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="3-panel event display: MC Truth | BFS | GNN")
+    parser.add_argument("--root-dir", type=str,
+                        default="/exp/mu2e/data/users/wzhou2/GNN/root_files")
+    parser.add_argument("--checkpoint", type=str,
+                        default="outputs/runs/simple_edge_net_v1/checkpoints/best_model.pt")
+    parser.add_argument("--config", type=str, default="configs/default.yaml")
+    parser.add_argument("--split", type=str, default="val",
+                        choices=["val", "test"],
+                        help="Which split to draw events from")
+    parser.add_argument("--n-events", type=int, default=6,
+                        help="Number of event-disk graphs to plot")
+    parser.add_argument("--event-indices", type=int, nargs="*", default=None,
+                        help="Specific event indices within the first file")
+    parser.add_argument("--tau-edge", type=float, default=None,
+                        help="Override tau_edge (default: from config)")
+    parser.add_argument("--find-failures", action="store_true",
+                        help="Scan events to find and plot failure cases "
+                             "(merges/splits)")
+    parser.add_argument("--n-scan", type=int, default=200,
+                        help="Events to scan in --find-failures mode")
+    parser.add_argument("--output-dir", type=str,
+                        default="outputs/gnn_cluster_display")
+    parser.add_argument("--device", type=str, default=None)
+    args = parser.parse_args()
+
+    with open(args.config) as f:
+        cfg = yaml.safe_load(f)
+
+    if args.device:
+        device = torch.device(args.device)
+    elif torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+
+    tau_edge = args.tau_edge or cfg["inference"]["tau_edge"]
+    graph_cfg = cfg["graph"]
+
+    # Load model
+    model_cfg = cfg["model"]
+    model = SimpleEdgeNet(
+        node_dim=6, edge_dim=8,
+        hidden_dim=model_cfg.get("hidden_dim", 64),
+        n_mp_layers=model_cfg.get("n_mp_layers", 3),
+        dropout=model_cfg.get("dropout", 0.1),
+    )
+    ckpt = torch.load(args.checkpoint, weights_only=False, map_location=device)
+    model.load_state_dict(ckpt["model_state_dict"])
+    model.to(device).eval()
+    print(f"Model: epoch {ckpt['epoch']}, val F1={ckpt['val_f1']:.4f}")
+    print(f"tau_edge = {tau_edge}, device = {device}")
+
+    stats = load_stats(cfg["data"]["normalization_stats"])
+    crystal_map = load_crystal_map("data/crystal_geometry.csv")
+
+    # Load split file list
+    import uproot
+    split_key = args.split
+    with open(cfg["data"]["splits"][split_key]) as f:
+        file_list = [l.strip() for l in f if l.strip()]
+    print(f"Split '{split_key}': {len(file_list)} files")
+
+    out_dir = Path(args.output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    branches = [
+        "calohits.crystalId_", "calohits.eDep_", "calohits.time_",
+        "calohits.clusterIdx_",
+        "calohits.crystalPos_.fCoordinates.fX",
+        "calohits.crystalPos_.fCoordinates.fY",
+        "calohitsmc.simParticleIds", "calohitsmc.eDeps",
+    ]
+
+    if args.find_failures:
+        # Scan events to find interesting failure cases
+        print(f"Scanning {args.n_scan} events for failure cases...")
+        failure_events = []
+
+        fname = Path(file_list[0]).name
+        local_path = str(Path(args.root_dir) / fname)
+        tree = uproot.open(local_path + ":EventNtuple/ntuple")
+        arrays = tree.arrays(branches, entry_stop=args.n_scan)
+
+        for ev in range(len(arrays)):
+            for disk_id in [0, 1]:
+                result = process_event_disk(
+                    arrays, ev, disk_id, crystal_map, graph_cfg,
+                    model, stats, device, tau_edge)
+                if result is None:
+                    continue
+                merged, split = detect_failures(
+                    result["gnn_labels"], result["truth_labels"],
+                    result["energies"])
+                n_fail = len(merged) + len(split)
+                if n_fail > 0:
+                    failure_events.append((ev, disk_id, n_fail, result))
+
+        failure_events.sort(key=lambda x: -x[2])
+        print(f"Found {len(failure_events)} event-disks with failures")
+
+        n_plot = min(args.n_events, len(failure_events))
+        for idx in range(n_plot):
+            ev, disk_id, n_fail, result = failure_events[idx]
+            label = (f"Event {ev}, Disk {disk_id} — "
+                     f"{n_fail} failure(s) [file: {Path(file_list[0]).name}]")
+            out_path = out_dir / f"debug_{idx:03d}_evt{ev}_disk{disk_id}.png"
+            plot_event_3panel(
+                result["hit_x"], result["hit_y"], result["energies"],
+                result["disk_id"], result["truth_labels"],
+                result["bfs_labels"], result["gnn_labels"],
+                result["edge_index"], result["edge_probs"],
+                crystal_map, out_path, event_label=label)
+            print(f"  [{idx+1}/{n_plot}] {label} -> {out_path.name}")
+
+    else:
+        # Plot specific events or first N
+        fname = Path(file_list[0]).name
+        local_path = str(Path(args.root_dir) / fname)
+        tree = uproot.open(local_path + ":EventNtuple/ntuple")
+
+        # Determine how many events to read
+        if args.event_indices:
+            n_read = max(args.event_indices) + 1
+        else:
+            n_read = args.n_events * 3  # read extra since some disks are skipped
+        arrays = tree.arrays(branches, entry_stop=n_read)
+
+        plotted = 0
+        target = args.n_events
+        ev_iter = args.event_indices if args.event_indices else range(len(arrays))
+
+        for ev in ev_iter:
+            if plotted >= target:
+                break
+            if ev >= len(arrays):
+                continue
+            for disk_id in [0, 1]:
+                if plotted >= target:
+                    break
+                result = process_event_disk(
+                    arrays, ev, disk_id, crystal_map, graph_cfg,
+                    model, stats, device, tau_edge)
+                if result is None:
+                    continue
+
+                label = (f"Event {ev}, Disk {disk_id} "
+                         f"[{split_key} split, {Path(file_list[0]).name}]")
+                out_path = out_dir / f"display_{plotted:03d}_evt{ev}_disk{disk_id}.png"
+                plot_event_3panel(
+                    result["hit_x"], result["hit_y"], result["energies"],
+                    result["disk_id"], result["truth_labels"],
+                    result["bfs_labels"], result["gnn_labels"],
+                    result["edge_index"], result["edge_probs"],
+                    crystal_map, out_path, event_label=label)
+                print(f"  [{plotted+1}/{target}] {label} -> {out_path.name}")
+                plotted += 1
+
+    print(f"\nDone. Plots saved to {out_dir}/")
+
+
+if __name__ == "__main__":
+    main()
