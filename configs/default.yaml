@@ -45,7 +45,7 @@ train:
 inference:
   # Tuned on val set — do not change after test evaluation begins
   tau_node: 0.5
-  tau_edge: 0.5
+  tau_edge: 0.34
   min_hits: 2
   min_energy_mev: 10.0
 
