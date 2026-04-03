@@ -28,6 +28,7 @@ outputs/graph_gate/
 outputs/threshold_sweep*/
 outputs/test_eval*/
 outputs/gnn_cluster_display*/
+outputs/failure_audit/
 checkpoints/*
 !checkpoints/.gitkeep
 
