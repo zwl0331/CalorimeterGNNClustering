@@ -47,6 +47,9 @@ checkpoints/*
 CLAUDE.md
 .claude/
 
+# Slides
+slides/
+
 # --- Files that SHOULD be committed ---
 # data/crystal_geometry.csv    -- static detector geometry, commit this
 # data/crystal_neighbors.csv   -- static crystal adjacency, commit this
