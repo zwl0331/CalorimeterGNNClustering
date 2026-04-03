@@ -42,10 +42,6 @@ checkpoints/*
 *.swo
 *~
 
-# Claude
-CLAUDE.md
-.claude/
-
 # Slides
 slides/
 
