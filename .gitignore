@@ -20,15 +20,14 @@ logs/
 # Model outputs — do not commit
 outputs/plots/*
 !outputs/plots/.gitkeep
-outputs/debug/*
-!outputs/debug/.gitkeep
+outputs/debug*/
 outputs/runs/
 outputs/crystal_map/
 outputs/event_display/
 outputs/graph_gate/
-outputs/threshold_sweep/
-outputs/test_eval/
-outputs/gnn_cluster_display/
+outputs/threshold_sweep*/
+outputs/test_eval*/
+outputs/gnn_cluster_display*/
 checkpoints/*
 !checkpoints/.gitkeep
 
