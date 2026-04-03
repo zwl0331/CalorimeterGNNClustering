@@ -17,7 +17,7 @@ from pathlib import Path
 import torch
 from torch_geometric.loader import DataLoader
 
-from src.training.losses import masked_bce_loss, compute_class_weights
+from src.training.losses import masked_bce_loss, multitask_loss, compute_class_weights
 from src.training.metrics import edge_metrics, edge_auc, cluster_metrics_from_edges
 
 
@@ -53,6 +53,11 @@ class Trainer:
 
         self.pos_weight = pos_weight.to(self.device) if pos_weight is not None else None
 
+        # Multi-task loss weights
+        self.lambda_edge = cfg.get("lambda_edge", 1.0)
+        self.lambda_node = cfg.get("lambda_node", 0.0)
+        self.lambda_cons = cfg.get("lambda_cons", 0.0)
+
         # Optimizer
         self.optimizer = torch.optim.AdamW(
             model.parameters(),
@@ -80,10 +85,17 @@ class Trainer:
         self.best_val_f1 = 0.0
         self.epochs_without_improvement = 0
 
+    def _extract_edge_logits(self, output):
+        """Extract edge logits from model output (Tensor or dict)."""
+        if isinstance(output, dict):
+            return output["edge_logits"]
+        return output
+
     def train_epoch(self):
         """Run one training epoch. Returns dict of average metrics."""
         self.model.train()
         total_loss = 0.0
+        total_sub_losses = {}
         n_batches = 0
         all_logits, all_targets, all_masks = [], [], []
 
@@ -91,10 +103,12 @@ class Trainer:
             batch = batch.to(self.device)
             self.optimizer.zero_grad()
 
-            logits = self.model(batch)
-            loss = masked_bce_loss(
-                logits, batch.y_edge, batch.edge_mask,
-                pos_weight=self.pos_weight,
+            output = self.model(batch)
+            loss, loss_dict = multitask_loss(
+                output, batch, pos_weight=self.pos_weight,
+                lambda_edge=self.lambda_edge,
+                lambda_node=self.lambda_node,
+                lambda_cons=self.lambda_cons,
             )
 
             loss.backward()
@@ -102,9 +116,11 @@ class Trainer:
             self.optimizer.step()
 
             total_loss += loss.item()
+            for k, v in loss_dict.items():
+                total_sub_losses[k] = total_sub_losses.get(k, 0.0) + v
             n_batches += 1
 
-            all_logits.append(logits.detach())
+            all_logits.append(self._extract_edge_logits(output).detach())
             all_targets.append(batch.y_edge)
             all_masks.append(batch.edge_mask)
 
@@ -115,6 +131,8 @@ class Trainer:
 
         em = edge_metrics(logits_cat, targets_cat, masks_cat)
         em["loss"] = total_loss / max(n_batches, 1)
+        for k, v in total_sub_losses.items():
+            em[k] = v / max(n_batches, 1)
         return em
 
     @torch.no_grad()
@@ -128,22 +146,27 @@ class Trainer:
                     "roc_auc": 0.0, "pr_auc": 0.0}
 
         total_loss = 0.0
+        total_sub_losses = {}
         n_batches = 0
         all_logits, all_targets, all_masks = [], [], []
 
         for batch in self.val_loader:
             batch = batch.to(self.device)
 
-            logits = self.model(batch)
-            loss = masked_bce_loss(
-                logits, batch.y_edge, batch.edge_mask,
-                pos_weight=self.pos_weight,
+            output = self.model(batch)
+            loss, loss_dict = multitask_loss(
+                output, batch, pos_weight=self.pos_weight,
+                lambda_edge=self.lambda_edge,
+                lambda_node=self.lambda_node,
+                lambda_cons=self.lambda_cons,
             )
 
             total_loss += loss.item()
+            for k, v in loss_dict.items():
+                total_sub_losses[k] = total_sub_losses.get(k, 0.0) + v
             n_batches += 1
 
-            all_logits.append(logits)
+            all_logits.append(self._extract_edge_logits(output))
             all_targets.append(batch.y_edge)
             all_masks.append(batch.edge_mask)
 
@@ -156,6 +179,8 @@ class Trainer:
         auc = edge_auc(logits_cat, targets_cat, masks_cat)
         em.update(auc)
         em["loss"] = total_loss / max(n_batches, 1)
+        for k, v in total_sub_losses.items():
+            em[k] = v / max(n_batches, 1)
         return em
 
     def fit(self):

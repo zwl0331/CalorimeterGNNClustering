@@ -23,6 +23,7 @@ import yaml
 from src.data.dataset import CaloGraphDataset
 from src.data.normalization import load_stats, normalize_graph
 from src.models.simple_edge_net import SimpleEdgeNet
+from src.models.calo_cluster_net import CaloClusterNetV1
 from src.training.losses import compute_class_weights
 from src.training.trainer import Trainer
 
@@ -55,6 +56,14 @@ def build_model(cfg):
             edge_dim=8,
             hidden_dim=model_cfg.get("hidden_dim", 64),
             n_mp_layers=model_cfg.get("n_mp_layers", 3),
+            dropout=model_cfg.get("dropout", 0.1),
+        )
+    elif name == "CaloClusterNetV1":
+        return CaloClusterNetV1(
+            node_dim=6,
+            edge_dim=8,
+            hidden_dim=model_cfg.get("hidden_dim", 96),
+            n_mp_layers=model_cfg.get("n_mp_layers", 4),
             dropout=model_cfg.get("dropout", 0.1),
         )
     else:

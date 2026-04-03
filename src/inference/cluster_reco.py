@@ -174,7 +174,8 @@ def predict_clusters(model, data, device="cpu", tau_edge=0.5,
     model.eval()
     data_dev = data.clone().to(device)
     with torch.no_grad():
-        logits = model(data_dev)
+        output = model(data_dev)
+    logits = output["edge_logits"] if isinstance(output, dict) else output
 
     # Use raw energies if available (node feature 0 is log(1+E))
     energies = None
