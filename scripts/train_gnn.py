@@ -22,8 +22,7 @@ import yaml
 
 from src.data.dataset import CaloGraphDataset
 from src.data.normalization import load_stats, normalize_graph
-from src.models.simple_edge_net import SimpleEdgeNet
-from src.models.calo_cluster_net import CaloClusterNetV1
+from src.models import build_model
 from src.training.losses import compute_class_weights
 from src.training.trainer import Trainer
 
@@ -45,31 +44,6 @@ def get_git_hash():
         return "unknown"
 
 
-def build_model(cfg):
-    """Instantiate model from config."""
-    model_cfg = cfg["model"]
-    name = model_cfg.get("name", "SimpleEdgeNet")
-
-    if name == "SimpleEdgeNet":
-        return SimpleEdgeNet(
-            node_dim=6,
-            edge_dim=8,
-            hidden_dim=model_cfg.get("hidden_dim", 64),
-            n_mp_layers=model_cfg.get("n_mp_layers", 3),
-            dropout=model_cfg.get("dropout", 0.1),
-        )
-    elif name == "CaloClusterNetV1":
-        return CaloClusterNetV1(
-            node_dim=6,
-            edge_dim=8,
-            hidden_dim=model_cfg.get("hidden_dim", 96),
-            n_mp_layers=model_cfg.get("n_mp_layers", 4),
-            dropout=model_cfg.get("dropout", 0.1),
-        )
-    else:
-        raise ValueError(f"Unknown model: {name}")
-
-
 def main():
     parser = argparse.ArgumentParser(description="Train GNN for calorimeter clustering")
     parser.add_argument("--config", type=str, default="configs/default.yaml")
@@ -78,6 +52,9 @@ def main():
     parser.add_argument("--epochs", type=int, default=None, help="Override max epochs")
     parser.add_argument("--batch-size", type=int, default=None, help="Override batch size")
     parser.add_argument("--run-name", type=str, default=None, help="Run directory name")
+    parser.add_argument("--resume", type=str, default=None,
+                        help="Path to checkpoint to resume from (loads model weights only, "
+                             "resets optimizer for staged training)")
     args = parser.parse_args()
 
     # Load config
@@ -165,6 +142,13 @@ def main():
     print(f"  Parameters: {n_params:,}")
     print(f"  Hidden dim: {cfg['model']['hidden_dim']}")
     print(f"  MP layers:  {cfg['model']['n_mp_layers']}")
+
+    # Resume from checkpoint (model weights only — optimizer resets for staged training)
+    if args.resume:
+        ckpt = torch.load(args.resume, weights_only=False, map_location=device)
+        model.load_state_dict(ckpt["model_state_dict"])
+        print(f"  Resumed weights from {args.resume} "
+              f"(epoch {ckpt['epoch']}, val F1={ckpt['val_f1']:.4f})")
 
     # Train
     trainer = Trainer(
