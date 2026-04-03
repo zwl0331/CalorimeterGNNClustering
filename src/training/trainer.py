@@ -18,7 +18,9 @@ import torch
 from torch_geometric.loader import DataLoader
 
 from src.training.losses import masked_bce_loss, multitask_loss, compute_class_weights
-from src.training.metrics import edge_metrics, edge_auc, cluster_metrics_from_edges
+from src.training.metrics import (
+    edge_metrics, edge_auc, cluster_metrics_from_edges, node_saliency_metrics,
+)
 
 
 class Trainer:
@@ -150,6 +152,8 @@ class Trainer:
         n_batches = 0
         all_logits, all_targets, all_masks = [], [], []
 
+        all_node_logits, all_y_node = [], []
+
         for batch in self.val_loader:
             batch = batch.to(self.device)
 
@@ -170,6 +174,10 @@ class Trainer:
             all_targets.append(batch.y_edge)
             all_masks.append(batch.edge_mask)
 
+            if isinstance(output, dict) and "node_logits" in output:
+                all_node_logits.append(output["node_logits"])
+                all_y_node.append(batch.y_node)
+
         # Edge metrics (full val set, no subsampling)
         logits_cat = torch.cat(all_logits)
         targets_cat = torch.cat(all_targets)
@@ -181,6 +189,14 @@ class Trainer:
         em["loss"] = total_loss / max(n_batches, 1)
         for k, v in total_sub_losses.items():
             em[k] = v / max(n_batches, 1)
+
+        # Node saliency metrics (if available)
+        if all_node_logits:
+            nm = node_saliency_metrics(
+                torch.cat(all_node_logits), torch.cat(all_y_node),
+            )
+            em.update(nm)
+
         return em
 
     def fit(self):
@@ -226,6 +242,12 @@ class Trainer:
                 print(
                     f"         val ROC-AUC {val_m['roc_auc']:.3f} "
                     f"PR-AUC {val_m['pr_auc']:.3f}"
+                )
+            if "node_f1" in val_m:
+                print(
+                    f"         val node F1 {val_m['node_f1']:.3f} "
+                    f"P {val_m['node_precision']:.3f} "
+                    f"R {val_m['node_recall']:.3f}"
                 )
 
             # Check for NaN

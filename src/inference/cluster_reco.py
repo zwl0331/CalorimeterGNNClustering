@@ -57,7 +57,7 @@ def symmetrize_edge_scores(edge_index, edge_probs):
 
 def reconstruct_clusters(edge_index, edge_logits, n_nodes, energies=None,
                          tau_edge=0.5, min_hits=2, min_energy_mev=10.0,
-                         symmetrize=True):
+                         symmetrize=True, node_logits=None, tau_node=None):
     """Reconstruct clusters from edge predictions.
 
     Parameters
@@ -80,6 +80,14 @@ def reconstruct_clusters(edge_index, edge_logits, n_nodes, energies=None,
         get label -1.
     symmetrize : bool
         If True, average directed scores before thresholding.
+    node_logits : Tensor or ndarray (N,), optional
+        Raw node saliency logits from CaloClusterNetV1. If provided with
+        tau_node, edges where either endpoint has saliency < tau_node are
+        suppressed before thresholding.
+    tau_node : float or None
+        Node saliency threshold. Edges with either endpoint below this
+        threshold have their probability zeroed out. Only used when
+        node_logits is provided.
 
     Returns
     -------
@@ -95,8 +103,17 @@ def reconstruct_clusters(edge_index, edge_logits, n_nodes, energies=None,
         edge_logits = edge_logits.detach().cpu().numpy()
     if energies is not None and isinstance(energies, torch.Tensor):
         energies = energies.cpu().numpy()
+    if node_logits is not None and isinstance(node_logits, torch.Tensor):
+        node_logits = node_logits.detach().cpu().numpy()
 
     edge_probs_raw = 1.0 / (1.0 + np.exp(-edge_logits.astype(np.float64)))
+
+    # Node saliency prefiltering: zero out edges where either endpoint is non-salient
+    if node_logits is not None and tau_node is not None:
+        node_probs = 1.0 / (1.0 + np.exp(-node_logits.astype(np.float64)))
+        src, dst = edge_index[0], edge_index[1]
+        non_salient = (node_probs[src] < tau_node) | (node_probs[dst] < tau_node)
+        edge_probs_raw[non_salient] = 0.0
 
     if symmetrize:
         ei_sym, ep_sym = symmetrize_edge_scores(edge_index, edge_probs_raw)
@@ -152,7 +169,7 @@ def reconstruct_clusters(edge_index, edge_logits, n_nodes, energies=None,
 
 
 def predict_clusters(model, data, device="cpu", tau_edge=0.5,
-                     min_hits=2, min_energy_mev=10.0):
+                     min_hits=2, min_energy_mev=10.0, tau_node=None):
     """Run model inference and return cluster labels.
 
     Convenience wrapper: forward pass → reconstruct_clusters.
@@ -160,11 +177,14 @@ def predict_clusters(model, data, device="cpu", tau_edge=0.5,
     Parameters
     ----------
     model : nn.Module
-        Trained SimpleEdgeNet (or compatible).
+        Trained SimpleEdgeNet or CaloClusterNetV1.
     data : torch_geometric.data.Data
         Single graph with x, edge_index, edge_attr.
     device : str or torch.device
     tau_edge, min_hits, min_energy_mev : see reconstruct_clusters.
+    tau_node : float or None
+        Node saliency threshold. Only used with models that return
+        node_logits (CaloClusterNetV1).
 
     Returns
     -------
@@ -175,7 +195,13 @@ def predict_clusters(model, data, device="cpu", tau_edge=0.5,
     data_dev = data.clone().to(device)
     with torch.no_grad():
         output = model(data_dev)
-    logits = output["edge_logits"] if isinstance(output, dict) else output
+
+    if isinstance(output, dict):
+        logits = output["edge_logits"]
+        node_logits = output.get("node_logits")
+    else:
+        logits = output
+        node_logits = None
 
     # Use raw energies if available (node feature 0 is log(1+E))
     energies = None
@@ -191,4 +217,6 @@ def predict_clusters(model, data, device="cpu", tau_edge=0.5,
         tau_edge=tau_edge,
         min_hits=min_hits,
         min_energy_mev=min_energy_mev,
+        node_logits=node_logits.cpu() if node_logits is not None else None,
+        tau_node=tau_node,
     )

@@ -11,6 +11,47 @@ from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 
 
+def node_saliency_metrics(node_logits, y_node, threshold=0.5):
+    """Compute node saliency classification metrics.
+
+    Parameters
+    ----------
+    node_logits : Tensor (N,)
+        Raw logits for node saliency.
+    y_node : Tensor (N,)
+        Node labels. >= 0 means signal (assigned to truth cluster), -1 means noise.
+    threshold : float
+        Classification threshold on sigmoid(logits).
+
+    Returns
+    -------
+    dict with precision, recall, f1, accuracy, n_signal, n_noise.
+    """
+    probs = torch.sigmoid(node_logits).cpu().numpy()
+    targets = (y_node >= 0).cpu().numpy().astype(int)
+
+    preds = (probs >= threshold).astype(int)
+
+    tp = ((preds == 1) & (targets == 1)).sum()
+    fp = ((preds == 1) & (targets == 0)).sum()
+    fn = ((preds == 0) & (targets == 1)).sum()
+    tn = ((preds == 0) & (targets == 0)).sum()
+
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+    accuracy = (tp + tn) / len(targets) if len(targets) > 0 else 0.0
+
+    return {
+        "node_precision": float(precision),
+        "node_recall": float(recall),
+        "node_f1": float(f1),
+        "node_accuracy": float(accuracy),
+        "n_signal": int(targets.sum()),
+        "n_noise": int((1 - targets).sum()),
+    }
+
+
 def edge_metrics(logits, targets, mask, threshold=0.5):
     """Compute edge classification metrics on masked edges.
 
