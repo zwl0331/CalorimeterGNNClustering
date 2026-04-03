@@ -39,7 +39,7 @@ from src.data.graph_builder import build_graph, compute_edge_features, compute_n
 from src.data.normalization import load_stats, normalize_graph
 from src.geometry.crystal_geometry import load_crystal_map
 from src.inference.cluster_reco import reconstruct_clusters
-from src.models.simple_edge_net import SimpleEdgeNet
+from src.models import build_model
 from torch_geometric.data import Data
 
 
@@ -217,7 +217,8 @@ def main():
     parser.add_argument("--checkpoint", type=str,
                         default="outputs/runs/simple_edge_net_v1/checkpoints/best_model.pt")
     parser.add_argument("--config", type=str, default="configs/default.yaml")
-    parser.add_argument("--output-dir", type=str, default="outputs/test_eval")
+    parser.add_argument("--output-dir", type=str, default=None,
+                        help="Output directory (default: outputs/test_eval_<model>)")
     parser.add_argument("--n-events", type=int, default=None,
                         help="Max events per file (default: all). "
                              "500-1000 gives stable statistics.")
@@ -237,22 +238,33 @@ def main():
     print(f"Device: {device}")
 
     # Load model
-    model_cfg = cfg["model"]
-    model = SimpleEdgeNet(
-        node_dim=6, edge_dim=8,
-        hidden_dim=model_cfg.get("hidden_dim", 64),
-        n_mp_layers=model_cfg.get("n_mp_layers", 3),
-        dropout=model_cfg.get("dropout", 0.1),
-    )
+    model = build_model(cfg)
     ckpt = torch.load(args.checkpoint, weights_only=False, map_location=device)
     model.load_state_dict(ckpt["model_state_dict"])
     model.to(device).eval()
-    print(f"Loaded model from epoch {ckpt['epoch']} (val F1={ckpt['val_f1']:.4f})")
+    model_name = cfg["model"].get("name", "SimpleEdgeNet")
+    print(f"Model: {model_name}")
+    print(f"Loaded from epoch {ckpt['epoch']} (val F1={ckpt['val_f1']:.4f})")
 
     # Frozen inference parameters
     inf_cfg = cfg["inference"]
     tau_edge = inf_cfg["tau_edge"]
+    # tau_node only used when explicitly set in config AND model has node head
+    has_node_head = model_name == "CaloClusterNetV1"
+    tau_node_cfg = inf_cfg.get("tau_node")
+    # Only apply tau_node if the training config had lambda_node > 0
+    lambda_node = cfg.get("train", {}).get("lambda_node", 0.0)
+    tau_node = tau_node_cfg if (has_node_head and lambda_node > 0) else None
     print(f"Frozen tau_edge = {tau_edge}")
+    if tau_node is not None:
+        print(f"Frozen tau_node = {tau_node}")
+    else:
+        print(f"tau_node = disabled")
+
+    # Output directory (model-specific default)
+    if args.output_dir is None:
+        suffix = model_name.lower()
+        args.output_dir = f"outputs/test_eval_{suffix}"
 
     # Load normalization stats and crystal map
     stats = load_stats(cfg["data"]["normalization_stats"])
@@ -371,16 +383,27 @@ def main():
 
                 # Model inference
                 with torch.no_grad():
-                    logits = model(data.to(device))
+                    output = model(data.to(device))
+
+                # Handle both dict (CaloClusterNetV1) and tensor (SimpleEdgeNet)
+                if isinstance(output, dict):
+                    logits_np = output["edge_logits"].cpu().numpy()
+                    nl = output.get("node_logits")
+                    node_logits_np = nl.cpu().numpy() if nl is not None else None
+                else:
+                    logits_np = output.cpu().numpy()
+                    node_logits_np = None
 
                 gnn_labels, _ = reconstruct_clusters(
                     edge_index=edge_index,
-                    edge_logits=logits.cpu().numpy(),
+                    edge_logits=logits_np,
                     n_nodes=n_disk,
                     energies=d_e,
                     tau_edge=tau_edge,
                     min_hits=1,
                     min_energy_mev=0.0,
+                    node_logits=node_logits_np,
+                    tau_node=tau_node,
                 )
 
                 gnn_match, gnn_td = match_clusters_detail(

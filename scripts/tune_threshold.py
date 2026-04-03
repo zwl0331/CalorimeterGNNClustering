@@ -35,7 +35,7 @@ import yaml
 
 from src.data.normalization import load_stats, normalize_graph
 from src.inference.cluster_reco import reconstruct_clusters
-from src.models.simple_edge_net import SimpleEdgeNet
+from src.models import build_model
 
 
 def match_clusters_energy(pred_labels, truth_labels, energies):
@@ -108,7 +108,8 @@ def match_clusters_energy(pred_labels, truth_labels, energies):
     }
 
 
-def evaluate_threshold(graphs_info, threshold, min_hits=2, min_energy_mev=10.0):
+def evaluate_threshold(graphs_info, threshold, min_hits=2, min_energy_mev=10.0,
+                       tau_node=None):
     """Evaluate a single threshold across all precomputed graph data."""
     cluster_results = []
     # Accumulators for edge-level pairwise metrics
@@ -124,6 +125,8 @@ def evaluate_threshold(graphs_info, threshold, min_hits=2, min_energy_mev=10.0):
             tau_edge=threshold,
             min_hits=min_hits,
             min_energy_mev=min_energy_mev,
+            node_logits=g.get("node_logits"),
+            tau_node=tau_node,
         )
         cluster_results.append(
             match_clusters_energy(cluster_labels, g["truth_labels"], g["energies"])
@@ -175,7 +178,11 @@ def main():
     parser.add_argument("--checkpoint", type=str,
                         default="outputs/runs/simple_edge_net_v1/checkpoints/best_model.pt")
     parser.add_argument("--config", type=str, default="configs/default.yaml")
-    parser.add_argument("--output-dir", type=str, default="outputs/threshold_sweep")
+    parser.add_argument("--output-dir", type=str, default=None,
+                        help="Output directory (default: outputs/threshold_sweep_<model>)")
+    parser.add_argument("--tau-node", type=float, default=None,
+                        help="Fixed node saliency threshold (default: from config if model "
+                             "supports it)")
     parser.add_argument("--min-hits", type=int, default=1,
                         help="Min hits per cluster (default 1 for tuning; "
                              "production uses 2)")
@@ -191,17 +198,26 @@ def main():
     print(f"Device: {device}")
 
     # Load model
-    model_cfg = cfg["model"]
-    model = SimpleEdgeNet(
-        node_dim=6, edge_dim=8,
-        hidden_dim=model_cfg.get("hidden_dim", 64),
-        n_mp_layers=model_cfg.get("n_mp_layers", 3),
-        dropout=model_cfg.get("dropout", 0.1),
-    )
+    model = build_model(cfg)
     ckpt = torch.load(args.checkpoint, weights_only=False, map_location=device)
     model.load_state_dict(ckpt["model_state_dict"])
     model.to(device).eval()
-    print(f"Loaded model from epoch {ckpt['epoch']} (val F1={ckpt['val_f1']:.4f})")
+    model_name = cfg["model"].get("name", "SimpleEdgeNet")
+    print(f"Model: {model_name}")
+    print(f"Loaded from epoch {ckpt['epoch']} (val F1={ckpt['val_f1']:.4f})")
+
+    # Node saliency threshold (only when explicitly requested via --tau-node,
+    # since the node head may be untrained in early stages)
+    tau_node = args.tau_node
+    if tau_node is not None:
+        print(f"tau_node = {tau_node}")
+    else:
+        print("tau_node = disabled (pass --tau-node to enable)")
+
+    # Output directory (model-specific default)
+    if args.output_dir is None:
+        suffix = model_name.lower()
+        args.output_dir = f"outputs/threshold_sweep_{suffix}"
 
     # Load val graphs (un-normalized packed file)
     val_packed = Path(cfg["data"]["processed_dir"]) / "val.pt"
@@ -232,8 +248,16 @@ def main():
 
         # Forward pass
         with torch.no_grad():
-            logits = model(data_norm.to(device))
-        logits_np = logits.cpu().numpy()
+            output = model(data_norm.to(device))
+
+        # Handle both dict (CaloClusterNetV1) and tensor (SimpleEdgeNet) output
+        if isinstance(output, dict):
+            logits_np = output["edge_logits"].cpu().numpy()
+            nl = output.get("node_logits")
+            node_logits_np = nl.cpu().numpy() if nl is not None else None
+        else:
+            logits_np = output.cpu().numpy()
+            node_logits_np = None
 
         # Precompute sigmoid probs on masked edges for pairwise metrics
         mask = data.edge_mask.bool().numpy()
@@ -241,6 +265,7 @@ def main():
 
         graphs_info.append({
             "logits": logits_np,
+            "node_logits": node_logits_np,
             "edge_index": data.edge_index.numpy(),
             "n_nodes": data.x.shape[0],
             "energies": energies,
@@ -265,7 +290,8 @@ def main():
     coarse_results = []
     for tau in coarse_thresholds:
         t1 = time.time()
-        result = evaluate_threshold(graphs_info, tau, min_hits, min_energy)
+        result = evaluate_threshold(graphs_info, tau, min_hits, min_energy,
+                                    tau_node=tau_node)
         dt = time.time() - t1
         coarse_results.append(result)
         print(f"  tau={tau:.2f}  F1={result['pairwise_f1']:.4f}  "
@@ -293,7 +319,8 @@ def main():
     fine_results = []
     for tau in fine_thresholds:
         t1 = time.time()
-        result = evaluate_threshold(graphs_info, tau, min_hits, min_energy)
+        result = evaluate_threshold(graphs_info, tau, min_hits, min_energy,
+                                    tau_node=tau_node)
         dt = time.time() - t1
         fine_results.append(result)
         print(f"  tau={tau:.2f}  F1={result['pairwise_f1']:.4f}  "
@@ -331,7 +358,8 @@ def main():
         print(f"\nWith production cleanup (min_hits={prod_min_hits}, "
               f"min_energy={prod_min_energy} MeV):")
         prod = evaluate_threshold(graphs_info, best_tau,
-                                  prod_min_hits, prod_min_energy)
+                                  prod_min_hits, prod_min_energy,
+                                  tau_node=tau_node)
         print(f"  Truth match rate:  {prod['truth_match_rate']:.4f}")
         print(f"  Reco match rate:   {prod['reco_match_rate']:.4f}")
         print(f"  Mean purity:       {prod['mean_purity']:.4f}")

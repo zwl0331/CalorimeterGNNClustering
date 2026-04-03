@@ -47,7 +47,7 @@ from src.data.graph_builder import build_graph, compute_edge_features, compute_n
 from src.data.normalization import load_stats, normalize_graph
 from src.geometry.crystal_geometry import load_crystal_map
 from src.inference.cluster_reco import reconstruct_clusters
-from src.models.simple_edge_net import SimpleEdgeNet
+from src.models import build_model
 from torch_geometric.data import Data
 
 CRYSTAL_PITCH = 34.3
@@ -292,7 +292,7 @@ def plot_event_3panel(hit_x, hit_y, hit_energy, disk_id,
 
 
 def process_event_disk(arrays, ev, disk_id, crystal_map, graph_cfg,
-                       model, stats, device, tau_edge):
+                       model, stats, device, tau_edge, tau_node=None):
     """Extract one event-disk, run GNN, return all data for plotting.
 
     Returns None if the disk has < 2 hits.
@@ -366,14 +366,24 @@ def process_event_disk(arrays, ev, disk_id, crystal_map, graph_cfg,
     normalize_graph(data, stats)
 
     with torch.no_grad():
-        logits = model(data.to(device))
-    logits_np = logits.cpu().numpy()
+        output = model(data.to(device))
+
+    # Handle both dict (CaloClusterNetV1) and tensor (SimpleEdgeNet)
+    if isinstance(output, dict):
+        logits_np = output["edge_logits"].cpu().numpy()
+        nl = output.get("node_logits")
+        node_logits_np = nl.cpu().numpy() if nl is not None else None
+    else:
+        logits_np = output.cpu().numpy()
+        node_logits_np = None
+
     edge_probs = 1.0 / (1.0 + np.exp(-logits_np.astype(np.float64)))
 
     gnn_labels, _ = reconstruct_clusters(
         edge_index=edge_index, edge_logits=logits_np,
         n_nodes=n_disk, energies=d_e,
-        tau_edge=tau_edge, min_hits=1, min_energy_mev=0.0)
+        tau_edge=tau_edge, min_hits=1, min_energy_mev=0.0,
+        node_logits=node_logits_np, tau_node=tau_node)
 
     return {
         "hit_x": d_x, "hit_y": d_y, "energies": d_e,
@@ -405,8 +415,8 @@ def main():
                              "(merges/splits)")
     parser.add_argument("--n-scan", type=int, default=200,
                         help="Events to scan in --find-failures mode")
-    parser.add_argument("--output-dir", type=str,
-                        default="outputs/gnn_cluster_display")
+    parser.add_argument("--output-dir", type=str, default=None,
+                        help="Output directory (default: outputs/gnn_cluster_display_<model>)")
     parser.add_argument("--device", type=str, default=None)
     args = parser.parse_args()
 
@@ -422,20 +432,17 @@ def main():
 
     tau_edge = args.tau_edge or cfg["inference"]["tau_edge"]
     graph_cfg = cfg["graph"]
+    model_name = cfg["model"].get("name", "SimpleEdgeNet")
+    has_node_head = model_name == "CaloClusterNetV1"
+    tau_node = cfg["inference"].get("tau_node") if has_node_head else None
 
     # Load model
-    model_cfg = cfg["model"]
-    model = SimpleEdgeNet(
-        node_dim=6, edge_dim=8,
-        hidden_dim=model_cfg.get("hidden_dim", 64),
-        n_mp_layers=model_cfg.get("n_mp_layers", 3),
-        dropout=model_cfg.get("dropout", 0.1),
-    )
+    model = build_model(cfg)
     ckpt = torch.load(args.checkpoint, weights_only=False, map_location=device)
     model.load_state_dict(ckpt["model_state_dict"])
     model.to(device).eval()
-    print(f"Model: epoch {ckpt['epoch']}, val F1={ckpt['val_f1']:.4f}")
-    print(f"tau_edge = {tau_edge}, device = {device}")
+    print(f"Model: {model_name}, epoch {ckpt['epoch']}, val F1={ckpt['val_f1']:.4f}")
+    print(f"tau_edge = {tau_edge}, tau_node = {tau_node}, device = {device}")
 
     stats = load_stats(cfg["data"]["normalization_stats"])
     crystal_map = load_crystal_map("data/crystal_geometry.csv")
@@ -447,6 +454,8 @@ def main():
         file_list = [l.strip() for l in f if l.strip()]
     print(f"Split '{split_key}': {len(file_list)} files")
 
+    if args.output_dir is None:
+        args.output_dir = f"outputs/gnn_cluster_display_{model_name.lower()}"
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -472,7 +481,7 @@ def main():
             for disk_id in [0, 1]:
                 result = process_event_disk(
                     arrays, ev, disk_id, crystal_map, graph_cfg,
-                    model, stats, device, tau_edge)
+                    model, stats, device, tau_edge, tau_node=tau_node)
                 if result is None:
                     continue
                 merged, split = detect_failures(
@@ -526,7 +535,7 @@ def main():
                     break
                 result = process_event_disk(
                     arrays, ev, disk_id, crystal_map, graph_cfg,
-                    model, stats, device, tau_edge)
+                    model, stats, device, tau_edge, tau_node=tau_node)
                 if result is None:
                     continue
 
