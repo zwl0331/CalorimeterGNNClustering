@@ -267,6 +267,9 @@ def draw_panel(ax, hit_x, hit_y, hit_energy, labels, disk_id, crystal_map,
     subtitle = f"{n_clust} clusters, {n_hits} hits, E={total_e:.0f} MeV"
     if n_unclust > 0:
         subtitle += f", {n_unclust} unclustered"
+    if focus_labels is not None:
+        n_shown = len(focus_labels)
+        subtitle += f"\nShowing {n_shown}/{n_clust} clusters involved in failures (rest dimmed)"
     ax.set_title(f"{title}\n{subtitle}", fontsize=10)
     ax.set_aspect("equal")
     ax.set_facecolor("#f7f7f7")
