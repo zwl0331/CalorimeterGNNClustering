@@ -11,8 +11,6 @@ __pycache__/
 data/processed/*
 !data/processed/.gitkeep
 data/normalization_stats.pt
-data/baseline/bfs_benchmark.csv
-data/baseline/bfs_cluster_summary.csv
 
 # Build logs
 logs/
@@ -22,19 +20,12 @@ outputs/plots/*
 !outputs/plots/.gitkeep
 outputs/debug*/
 outputs/runs/
-outputs/crystal_map/
-outputs/event_display/
-outputs/graph_gate/
 outputs/threshold_sweep*/
 outputs/test_eval*/
 outputs/gnn_cluster_display*/
 outputs/failure_audit/
 checkpoints/*
 !checkpoints/.gitkeep
-
-# Jupyter
-.ipynb_checkpoints/
-*.ipynb_checkpoints
 
 # Editor / OS
 .DS_Store
