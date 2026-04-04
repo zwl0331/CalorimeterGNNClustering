@@ -1,3 +1,14 @@
+"""GNN model architectures for calorimeter edge classification.
+
+Models
+------
+SimpleEdgeNet       Lightweight baseline (215K params): MLP encoders, sum MP, edge MLP head.
+CaloClusterNetV1    Multi-task model (676K params): residual MP, gated aggregation,
+                    node saliency + edge clustering heads.
+
+The ``build_model(cfg)`` factory instantiates the model specified in a YAML config.
+"""
+
 from src.models.simple_edge_net import SimpleEdgeNet
 from src.models.calo_cluster_net import CaloClusterNetV1
 
