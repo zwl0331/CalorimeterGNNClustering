@@ -191,6 +191,13 @@ ROOT files are MDC2025-002 format (`EventNtuple/ntuple` TTree). MC truth via `ca
 - Requires v2 ROOT files with `calomcsim.ancestorSimIds` branch
 - Result: ambiguity drops 57% (4.1% → 1.7%), singletons drop 14% (53% → 48%), merges halved
 
+**Remaining singletons (48%) are irreducible pileup:**
+- 66% photons (eBrem from upstream), 25% electrons, 4% neutrons
+- 90.6% deposit 10-50 MeV — single CsI crystal absorbs full shower at this energy
+- 99.1% of eBrem singletons have no parent in the calorimeter (emitted in tracker/transport)
+- Cross-disk correlation not useful; track matching won't help (photons leave no tracks)
+- **Real concern:** pileup singletons bias reconstructed cluster energy by ~10-50 MeV when merged into adjacent showers. BFS has no per-hit energy filter during expansion.
+
 ---
 
 ## Model results summary
