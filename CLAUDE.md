@@ -43,6 +43,21 @@ source setup_env.sh   # works in both interactive and non-interactive shells
 
 **GPU:** Not available on the login node. Training must run on a GPU node (A100 MIG ~20 GB available).
 
+**Mu2e build environment (muse):** For building C++ packages (EventNtuple, Offline), `mu2einit` and `muse` are interactive shell functions that do NOT work in scripts. Non-interactive workaround:
+```bash
+source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh
+source $SPACK_ROOT/share/spack/setup-env.sh
+spack load muse/di7thnq
+source $MUSE_DIR/bin/museDefine.sh
+cd /exp/mu2e/app/users/wzhou2/working_dir
+muse setup    # shell function available after museDefine.sh
+muse build -j4
+```
+
+**EventNtuple working directory:** `/exp/mu2e/app/users/wzhou2/working_dir/` — contains local checkouts of `EventNtuple/` and `Offline/`. Build with `muse` on a dedicated build node (Offline rebuild is slow). Modified EventNtuple adds `calomcsim.ancestorSimIds` branch for SimParticle ancestry.
+
+**MCS art files (input to EventNtuple):** `/pnfs/mu2e/persistent/datasets/phy-sim/mcs/mu2e/FlateMinusMix1BBTriggered/MDC2025af_best_v1_1/art/` (~141 files, run 001430). These are the reco+MC art files that Sophie used to produce the MDC2025-002 NTS ROOT files.
+
 ---
 
 ## Running things
