@@ -43,20 +43,31 @@ source setup_env.sh   # works in both interactive and non-interactive shells
 
 **GPU:** Not available on the login node. Training must run on a GPU node (A100 MIG ~20 GB available).
 
-**Mu2e build environment (muse):** For building C++ packages (EventNtuple, Offline), `mu2einit` and `muse` are interactive shell functions that do NOT work in scripts. Non-interactive workaround:
+**Long-running jobs:** Use `tmux` to persist jobs across disconnects. Convention:
+- `tmux new -s <name>` to create, `tmux attach -t <name>` to reconnect, `tmux list-sessions` to check
+- Active session `reprocess` may be running batch EventNtuple reprocessing (check with `tmux list-sessions`)
+- Batch scripts should `tee` output to a log file for monitoring without attaching
+
+**Mu2e build environment (muse):** For building C++ packages (EventNtuple, Offline, Production), `mu2einit` and `muse` are interactive shell functions. On AlmaLinux 9, `setupmu2e-art.sh` handles spack + muse setup automatically — no separate `$SPACK_ROOT` sourcing needed:
 ```bash
 source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh
-source $SPACK_ROOT/share/spack/setup-env.sh
-spack load muse/di7thnq
-source $MUSE_DIR/bin/museDefine.sh
 cd /exp/mu2e/app/users/wzhou2/working_dir
-muse setup    # shell function available after museDefine.sh
-muse build -j4
+muse setup
+muse build -j64   # use many cores on build nodes
 ```
 
-**EventNtuple working directory:** `/exp/mu2e/app/users/wzhou2/working_dir/` — contains local checkouts of `EventNtuple/` and `Offline/`. Build with `muse` on a dedicated build node (Offline rebuild is slow). Modified EventNtuple adds `calomcsim.ancestorSimIds` branch for SimParticle ancestry.
+**Muse build gotchas (discovered 2026-04-04):**
+- `--TFileName` does NOT work with `mu2e` command — use `-T` (short flag) instead.
+- EventNtuple `getTrigPathNameByIndex` → `getTrigPathName`: API renamed in current CVMFS Offline. Already fixed in local checkout.
+- `from_mcs-mockdata.fcl` requires `ArtAnalysis` package (for TrkQual/TrkPID). Use `from_mcs-calo-only.fcl` to skip track analysis and avoid this dependency.
+- `Production` repo must be cloned into working dir for `epilog.fcl` dependency.
+- `epilog.fcl` sets `TFileService.fileName: "/dev/null"` by default — FCL lines after the include override this.
 
-**MCS art files (input to EventNtuple):** `/pnfs/mu2e/persistent/datasets/phy-sim/mcs/mu2e/FlateMinusMix1BBTriggered/MDC2025af_best_v1_1/art/` (~141 files, run 001430). These are the reco+MC art files that Sophie used to produce the MDC2025-002 NTS ROOT files.
+**EventNtuple working directory:** `/exp/mu2e/app/users/wzhou2/working_dir/` — contains local checkouts of `EventNtuple/`, `Offline/`, and `Production/`. Build with `muse` on a dedicated build node (Offline rebuild is slow). Modified EventNtuple adds `calomcsim.ancestorSimIds` branch for SimParticle ancestry.
+
+**MCS art files (input to EventNtuple):** `/pnfs/mu2e/persistent/datasets/phy-sim/mcs/mu2e/FlateMinusMix1BBTriggered/MDC2025af_best_v1_1/art/` (50 files, run 001430). These are the reco+MC art files that Sophie used to produce the MDC2025-002 NTS ROOT files.
+
+**Reprocessed ROOT files (v2, with ancestry):** `/exp/mu2e/data/users/wzhou2/GNN/root_files_v2/` — produced from MCS art files using `from_mcs-calo-only.fcl` with modified EventNtuple. Contains `calomcsim.ancestorSimIds` branch with full Geant4 parent chains. Batch script: `root_files_v2/run_all.sh`.
 
 ---
 
@@ -142,11 +153,13 @@ ROOT files (EventNtuple/ntuple TTree)
 
 | What | Path |
 |------|------|
-| ROOT files (local) | `/exp/mu2e/data/users/wzhou2/GNN/root_files/` (50 files, 97 GB) |
+| ROOT files v1 (local) | `/exp/mu2e/data/users/wzhou2/GNN/root_files/` (50 files, 97 GB) |
+| ROOT files v2 (ancestry) | `/exp/mu2e/data/users/wzhou2/GNN/root_files_v2/` (50 files, with `ancestorSimIds`) |
 | Packed graphs | `data/processed/{train,val,test}.pt` |
 | Node/edge norm stats | `data/normalization_stats.pt` |
 | Crystal geometry | `data/crystal_geometry.csv`, `data/crystal_neighbors.csv` |
 | Splits (frozen) | `splits/{train,val,test}_files.txt` |
+| EventNtuple build | `/exp/mu2e/app/users/wzhou2/working_dir/` (EventNtuple + Offline + Production) |
 
 ROOT files are MDC2025-002 format (`EventNtuple/ntuple` TTree). MC truth via `calohitsmc` branches.
 
