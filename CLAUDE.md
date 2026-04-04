@@ -69,6 +69,12 @@ muse build -j64   # use many cores on build nodes
 
 **Reprocessed ROOT files (v2, with ancestry):** `/exp/mu2e/data/users/wzhou2/GNN/root_files_v2/` — produced from MCS art files using `from_mcs-calo-only.fcl` with modified EventNtuple. Contains `calomcsim.ancestorSimIds` branch with full Geant4 parent chains. Batch script: `root_files_v2/run_all.sh`.
 
+**Batch reprocessing notes:**
+- `run_all.sh` uses `MAX_PARALLEL=10`. Originally 20, but login node killed all processes after ~10 min (resource limits). 10 parallel is safe.
+- Each file takes ~8-10 min. Full 50-file batch: ~40-50 min with 10 parallel.
+- Script skips files that already exist — safe to rerun after partial failures. Delete partial outputs first (check file sizes; complete files are ~1.9-2.0 GB).
+- Must run inside tmux with muse environment: `tmux new -s reprocess`, then `source setupmu2e-art.sh && cd working_dir && muse setup && bash run_all.sh`.
+
 ---
 
 ## Running things
@@ -108,6 +114,12 @@ python3 scripts/failure_audit.py
 # 3-panel event displays: MC Truth | BFS | GNN
 python3 scripts/plot_gnn_clusters.py --n-events 6
 python3 scripts/plot_gnn_clusters.py --find-failures --n-scan 200
+
+# Validate ancestry data in v2 ROOT files
+OMP_NUM_THREADS=4 python3 scripts/validate_ancestry.py --max-events 500
+
+# Evaluate models against old vs new (calo-entrant) truth definitions
+OMP_NUM_THREADS=4 python3 scripts/evaluate_new_truth.py --split val --max-events 500
 ```
 
 ---
@@ -120,6 +132,7 @@ ROOT files (EventNtuple/ntuple TTree)
   +-> src/geometry/crystal_geometry.py    crystalId -> (diskId, x, y) lookup
   +-> src/data/graph_builder.py           radius+kNN graph, node/edge features
   +-> src/data/truth_labels.py            MC truth edge labels (from SimParticle IDs)
+  +-> src/data/truth_labels_primary.py    calo-entrant truth (from ancestorSimIds)
   |
   +-> src/data/dataset.py
         extract_events_from_file()        yields PyG Data per disk per event
@@ -154,7 +167,7 @@ ROOT files (EventNtuple/ntuple TTree)
 | What | Path |
 |------|------|
 | ROOT files v1 (local) | `/exp/mu2e/data/users/wzhou2/GNN/root_files/` (50 files, 97 GB) |
-| ROOT files v2 (ancestry) | `/exp/mu2e/data/users/wzhou2/GNN/root_files_v2/` (50 files, with `ancestorSimIds`) |
+| ROOT files v2 (ancestry) | `/exp/mu2e/data/users/wzhou2/GNN/root_files_v2/` (18 valid of 50, with `ancestorSimIds`; 30 need reprocessing) |
 | Packed graphs | `data/processed/{train,val,test}.pt` |
 | Node/edge norm stats | `data/normalization_stats.pt` |
 | Crystal geometry | `data/crystal_geometry.csv`, `data/crystal_neighbors.csv` |
@@ -167,12 +180,16 @@ ROOT files are MDC2025-002 format (`EventNtuple/ntuple` TTree). MC truth via `ca
 
 ## Truth labeling
 
-Implemented in `src/data/truth_labels.py`:
-- **MC truth:** `calohitsmc.simParticleIds` + `calohitsmc.eDeps` from MDC2025-002
-- Dominant SimParticle per hit; ambiguous if purity < 0.7
+**Old truth** (`src/data/truth_labels.py`):
+- Groups by dominant SimParticle ID per hit; ambiguous if purity < 0.7
 - Truth cluster = (dominant SimParticle, disk) pair
+- Problem: 53% of truth clusters are singletons from secondary shower products
 
-**Known issue (Task 11):** Current truth groups by individual SimParticle ID, not by primary particle. Secondary shower products (bremsstrahlung photons, etc.) get their own truth clusters even though they are physically part of the parent shower. This creates artificial singleton truth clusters (52% of all truth clusters) and inflates merge error counts. Fix: trace SimParticle ancestry back to the primary and group all shower products together. See `calomcsim` branches for ancestry info.
+**New truth** (`src/data/truth_labels_primary.py`, Task 11):
+- Groups by **calo-entrant ancestor** — the highest ancestor in the Geant4 parent chain that also deposited in the same disk
+- Energy deposits from same-shower SimParticles sum before purity check
+- Requires v2 ROOT files with `calomcsim.ancestorSimIds` branch
+- Result: ambiguity drops 57% (4.1% → 1.7%), singletons drop 14% (53% → 48%), merges halved
 
 ---
 
@@ -194,6 +211,17 @@ Implemented in `src/data/truth_labels.py`:
 - CaloClusterNetV1: `outputs/runs/calo_cluster_net_v1_stage1/checkpoints/best_model.pt`, t_edge=0.30
 - Production cleanup: `min_hits=2`, `min_energy_mev=10.0`
 
+**Calo-entrant truth re-evaluation (val set, 1,500 events, no retraining):**
+
+| Method | Truth | Truth MR | Purity | Merges |
+|--------|-------|----------|--------|--------|
+| BFS | old | 88.4% | 0.9731 | 1,028 |
+| BFS | **new** | **94.7%** | **0.9879** | **527** |
+| CaloClusterNetV1 | old | 88.5% | 0.9734 | 977 |
+| CaloClusterNetV1 | **new** | **94.7%** | **0.9882** | **480** |
+
+~50% of old merge errors were artificial (same shower, different SimParticle IDs). Script: `scripts/evaluate_new_truth.py`.
+
 ---
 
 ## Failure audit findings (Task 10)
@@ -204,7 +232,7 @@ Implemented in `src/data/truth_labels.py`:
 
 **Implication:** The project is less limited by model design than by whether SimParticle-based truth labels are the right reconstruction target, especially for singleton truth clusters.
 
-**Resolution (in progress):** Most singleton truth clusters are secondary shower products (bremsstrahlung photons from the primary particle) that deposit small energy in one crystal. They arrive at the same time (~0.2 ns) as the primary shower and are physically indistinguishable. The fix is to redefine truth at the **primary particle level** — trace each SimParticle back to its primary and group the entire shower as one truth cluster. See plan Task 11.
+**Resolution (Task 11, implemented):** Redefined truth at the **calo-entrant level** — trace each SimParticle back to its highest ancestor that deposited in the same disk. This collapses secondary shower products into parent showers. Result: merges halved, truth match rate +6.2%, all without retraining. See `src/data/truth_labels_primary.py`.
 
 Full audit: `outputs/failure_audit/audit_summary.json`, analysis script: `scripts/failure_audit.py`.
 
