@@ -30,6 +30,7 @@ class MLP(nn.Module):
         self.net = nn.Sequential(*layers)
 
     def forward(self, x):
+        """Apply the MLP layers sequentially to input ``x``."""
         return self.net(x)
 
 

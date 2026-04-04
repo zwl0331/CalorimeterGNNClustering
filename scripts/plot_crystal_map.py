@@ -43,7 +43,7 @@ def load_geometry(csv_path):
 
 def plot_disk(ax, crystal_ids, xs, ys, disk_id, label_fontsize=3.0,
               xlim=None, ylim=None):
-    """Plot one disk with crystal squares and ID labels."""
+    """Draw one calorimeter disk: crystal patches colored by type (CsI/CAPHRI), labeled with IDs."""
     half = CRYSTAL_SIZE / 2
 
     csi_patches = []

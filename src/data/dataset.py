@@ -227,13 +227,19 @@ class CaloGraphDataset(Dataset):
         return name[:idx] if idx >= 0 else name
 
     def len(self):
+        """Return the number of graphs in the dataset."""
         return len(self._files)
 
     def get(self, idx):
+        """Load and return the graph at index ``idx``.
+
+        Returns from in-memory cache if preloaded, otherwise reads from disk.
+        """
         if self._cache is not None:
             return self._cache[idx]
         return torch.load(self._files[idx], weights_only=False)
 
     @property
     def file_paths(self):
+        """List of .pt file paths backing this dataset."""
         return self._files

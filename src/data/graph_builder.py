@@ -111,7 +111,7 @@ def build_graph(positions, times, r_max=150.0, dt_max=25.0,
 
 
 def _deduplicate(edge_index):
-    """Remove duplicate edges."""
+    """Remove duplicate directed edges, keeping the first occurrence."""
     combined = edge_index[0] * (edge_index[1].max() + 1) + edge_index[1]
     _, unique_idx = np.unique(combined, return_index=True)
     return edge_index[:, unique_idx]
@@ -144,7 +144,7 @@ def _cap_degree(edge_index, positions, k_max):
 
 
 def _compute_diagnostics(edge_index, n_nodes):
-    """Compute graph statistics."""
+    """Compute graph statistics: node/edge counts, degree distribution."""
     if edge_index.shape[1] == 0:
         return _empty_diagnostics(n_nodes)
 
@@ -160,6 +160,7 @@ def _compute_diagnostics(edge_index, n_nodes):
 
 
 def _empty_diagnostics(n_nodes):
+    """Return zero-valued diagnostics dict for a graph with no edges."""
     return {
         "n_nodes": n_nodes,
         "n_edges": 0,
