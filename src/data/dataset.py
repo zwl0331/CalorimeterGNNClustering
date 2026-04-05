@@ -21,7 +21,7 @@ from src.data.graph_builder import (
     compute_edge_features,
     compute_node_features,
 )
-from src.data.truth_labels import assign_mc_truth
+from src.data.truth_labels_primary import assign_mc_truth_primary, build_calo_root_map
 from src.geometry.crystal_geometry import load_crystal_map
 
 
@@ -35,6 +35,9 @@ _BRANCHES = [
     "calohitsmc.simParticleIds",
     "calohitsmc.eDeps",
     "calohitsmc.nsim",
+    # v2 ancestry branches (for calo-entrant truth)
+    "calomcsim.id",
+    "calomcsim.ancestorSimIds",
 ]
 
 
@@ -104,6 +107,20 @@ def extract_events_from_file(filepath, crystal_map, graph_cfg, max_events=None):
         sim_ids = arrays["calohitsmc.simParticleIds"][ev]
         edeps_mc = arrays["calohitsmc.eDeps"][ev]
 
+        # v2 ancestry data for calo-entrant truth
+        calomcsim_ids = arrays["calomcsim.id"][ev]
+        calomcsim_ancestors = arrays["calomcsim.ancestorSimIds"][ev]
+
+        # Build crystal->disk map for this event's crystals
+        crystal_disk_map = {int(c): crystal_map[int(c)][0]
+                           for c in cryids if int(c) in crystal_map}
+
+        # Build calo-entrant root map (per event, used by all disks)
+        calo_root_map = build_calo_root_map(
+            calomcsim_ids, calomcsim_ancestors,
+            sim_ids, cryids, crystal_disk_map,
+        )
+
         # Process each disk separately
         for disk_id in [0, 1]:
             disk_mask = disks == disk_id
@@ -137,8 +154,8 @@ def extract_events_from_file(filepath, crystal_map, graph_cfg, max_events=None):
             d_edeps_mc = [list(edeps_mc[i]) for i in disk_indices]
             d_disks = np.full(n_disk, disk_id, dtype=np.int64)
 
-            y_edge, edge_mask, hit_truth_cluster, is_ambiguous = assign_mc_truth(
-                d_sim_ids, d_edeps_mc, d_disks, edge_index,
+            y_edge, edge_mask, hit_truth_cluster, is_ambiguous = assign_mc_truth_primary(
+                d_sim_ids, d_edeps_mc, d_disks, edge_index, calo_root_map,
             )
             y_node = (~is_ambiguous).astype(np.int64)
 

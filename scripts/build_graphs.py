@@ -33,7 +33,7 @@ def load_file_list(split_name, config):
     """Load file list for a given split."""
     if split_name == "all":
         import glob
-        pattern = "/pnfs/mu2e/tape/phy-nts/nts/mu2e/FlateMinusMix1BBTriggered/MDC2025-002/root/*/*/*.root"
+        pattern = "/exp/mu2e/data/users/wzhou2/GNN/root_files_v2/*.root"
         return sorted(glob.glob(pattern))
 
     split_path = Path(config["data"]["splits"][split_name])

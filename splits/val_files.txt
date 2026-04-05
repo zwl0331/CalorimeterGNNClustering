@@ -1,7 +1,7 @@
-/pnfs/mu2e/tape/phy-nts/nts/mu2e/FlateMinusMix1BBTriggered/MDC2025-002/root/04/13/nts.mu2e.FlateMinusMix1BBTriggered.MDC2025-002.001430_00000059.root
-/pnfs/mu2e/tape/phy-nts/nts/mu2e/FlateMinusMix1BBTriggered/MDC2025-002/root/20/aa/nts.mu2e.FlateMinusMix1BBTriggered.MDC2025-002.001430_00000044.root
-/pnfs/mu2e/tape/phy-nts/nts/mu2e/FlateMinusMix1BBTriggered/MDC2025-002/root/34/dd/nts.mu2e.FlateMinusMix1BBTriggered.MDC2025-002.001430_00000040.root
-/pnfs/mu2e/tape/phy-nts/nts/mu2e/FlateMinusMix1BBTriggered/MDC2025-002/root/36/72/nts.mu2e.FlateMinusMix1BBTriggered.MDC2025-002.001430_00000056.root
-/pnfs/mu2e/tape/phy-nts/nts/mu2e/FlateMinusMix1BBTriggered/MDC2025-002/root/58/14/nts.mu2e.FlateMinusMix1BBTriggered.MDC2025-002.001430_00000138.root
-/pnfs/mu2e/tape/phy-nts/nts/mu2e/FlateMinusMix1BBTriggered/MDC2025-002/root/73/8f/nts.mu2e.FlateMinusMix1BBTriggered.MDC2025-002.001430_00000032.root
-/pnfs/mu2e/tape/phy-nts/nts/mu2e/FlateMinusMix1BBTriggered/MDC2025-002/root/ab/80/nts.mu2e.FlateMinusMix1BBTriggered.MDC2025-002.001430_00000051.root
+/exp/mu2e/data/users/wzhou2/GNN/root_files_v2/nts.wzhou2.description.ancestry_v2.001430_00000059.root
+/exp/mu2e/data/users/wzhou2/GNN/root_files_v2/nts.wzhou2.description.ancestry_v2.001430_00000044.root
+/exp/mu2e/data/users/wzhou2/GNN/root_files_v2/nts.wzhou2.description.ancestry_v2.001430_00000040.root
+/exp/mu2e/data/users/wzhou2/GNN/root_files_v2/nts.wzhou2.description.ancestry_v2.001430_00000056.root
+/exp/mu2e/data/users/wzhou2/GNN/root_files_v2/nts.wzhou2.description.ancestry_v2.001430_00000138.root
+/exp/mu2e/data/users/wzhou2/GNN/root_files_v2/nts.wzhou2.description.ancestry_v2.001430_00000032.root
+/exp/mu2e/data/users/wzhou2/GNN/root_files_v2/nts.wzhou2.description.ancestry_v2.001430_00000051.root

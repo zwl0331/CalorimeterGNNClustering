@@ -9,7 +9,7 @@ cd /exp/mu2e/app/users/wzhou2/projects/calorimeter/GNN
 source setup_env.sh
 set -e
 
-ROOT_DIR=/exp/mu2e/data/users/wzhou2/GNN/root_files
+ROOT_DIR=/exp/mu2e/data/users/wzhou2/GNN/root_files_v2
 N_EVENTS=500
 
 echo "=== Clearing old processed data ==="
