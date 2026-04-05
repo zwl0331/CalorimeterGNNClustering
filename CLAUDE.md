@@ -165,16 +165,16 @@ ROOT files v2 (EventNtuple/ntuple TTree, with ancestorSimIds)
 
 | What | Path |
 |------|------|
-| ROOT files v2 (ancestry) | `/exp/mu2e/data/users/wzhou2/GNN/root_files_v2/` (18 valid of 50, with `ancestorSimIds`; 30 need reprocessing) |
-| ROOT files v1 (legacy) | `/exp/mu2e/data/users/wzhou2/GNN/root_files/` (50 files, 97 GB — no ancestry, do not use for new work) |
-| Packed graphs | `data/processed/{train,val,test}.pt` |
+| ROOT files v2 (ancestry) | `/exp/mu2e/data/users/wzhou2/GNN/root_files_v2/` (50 files, 97 GB, with `ancestorSimIds`) |
+| Packed graphs | `data/processed/{train,val,test}.pt` (119 + 23 + 27 MB, calo-entrant truth) |
 | Node/edge norm stats | `data/normalization_stats.pt` |
 | Crystal geometry | `data/crystal_geometry.csv`, `data/crystal_neighbors.csv` |
-| Splits | `splits/{train,val,test}_files.txt` (will be regenerated for v2 files) |
+| Splits (frozen) | `splits/{train,val,test}_files.txt` (35/7/8 v2 files) |
 | EventNtuple build | `/exp/mu2e/app/users/wzhou2/working_dir/` (EventNtuple + Offline + Production) |
 | v1 results archive | `~/gnn_v1_results.tar.gz` (35 MB — old outputs, plots, training runs) |
+| v1 ROOT files | **Deleted** (were at `root_files/`, 97 GB — originals on tape at `/pnfs/mu2e/tape/phy-nts/...`) |
 
-ROOT files are v2 reprocessed MDC2025-002 format (`EventNtuple/ntuple` TTree) with `calomcsim.ancestorSimIds` branch.
+ROOT files are v2 reprocessed MDC2025-002 format (`EventNtuple/ntuple` TTree) with `calomcsim.ancestorSimIds` branch. Produced via FermiGrid (50 jobs, cluster `90854576`).
 
 ---
 
@@ -226,9 +226,11 @@ ROOT files are v2 reprocessed MDC2025-002 format (`EventNtuple/ntuple` TTree) wi
 
 v1 outputs archived in `~/gnn_v1_results.tar.gz` (2026-04-05).
 
-### v2 campaign (calo-entrant truth, retrained) — pending
+### v2 campaign (calo-entrant truth, retrained) — in progress
 
-All models will be retrained from scratch on v2 ROOT files using calo-entrant truth exclusively. New results will appear here after the rebuild.
+**Data pipeline complete (2026-04-05):** 50 v2 ROOT files reprocessed via FermiGrid, 41,656 graphs built with calo-entrant truth (29,143 train / 5,793 val / 6,720 test), normalization computed, packed. Ready for GPU training.
+
+**v2 results — pending training.** Models will be retrained from scratch. Results will appear here after Steps 5-10.
 
 ---
 
@@ -248,7 +250,7 @@ Full v1 audit archived in `~/gnn_v1_results.tar.gz` under `outputs/failure_audit
 
 1. **Calo-entrant truth only:** All truth labels via `src/data/truth_labels_primary.py` using `calomcsim.ancestorSimIds` from v2 ROOT files. Never use old SimParticle-level truth (`truth_labels.py`) for training, evaluation, or graph building. Never use BFS reco (`clusterIdx_`) as truth.
 2. **v2 ROOT files only:** All data pipelines must use v2 files (`root_files_v2/`) with ancestry branches. v1 files (`root_files/`) are legacy — do not use for new work.
-3. **Split discipline:** `splits/` files will be regenerated for v2 files, then frozen. Never re-split after that.
+3. **Split discipline:** `splits/` files are frozen (35/7/8 v2 files, same file IDs as v1). Never re-split.
 4. **Normalization:** `data/normalization_stats.pt` computed from train split only.
 5. **Threshold tuning:** Always on validation set. Never on test set. Report final metrics once on test.
 6. **Graph unit:** One graph per disk per event. Disk 0 and Disk 1 are separate graphs.
