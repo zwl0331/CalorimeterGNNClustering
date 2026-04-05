@@ -127,12 +127,11 @@ OMP_NUM_THREADS=4 python3 scripts/evaluate_new_truth.py --split val --max-events
 ## Architecture and data flow
 
 ```
-ROOT files (EventNtuple/ntuple TTree)
+ROOT files v2 (EventNtuple/ntuple TTree, with ancestorSimIds)
   |
   +-> src/geometry/crystal_geometry.py    crystalId -> (diskId, x, y) lookup
   +-> src/data/graph_builder.py           radius+kNN graph, node/edge features
-  +-> src/data/truth_labels.py            MC truth edge labels (from SimParticle IDs)
-  +-> src/data/truth_labels_primary.py    calo-entrant truth (from ancestorSimIds)
+  +-> src/data/truth_labels_primary.py    calo-entrant truth (EXCLUSIVE — from ancestorSimIds)
   |
   +-> src/data/dataset.py
         extract_events_from_file()        yields PyG Data per disk per event
@@ -166,30 +165,29 @@ ROOT files (EventNtuple/ntuple TTree)
 
 | What | Path |
 |------|------|
-| ROOT files v1 (local) | `/exp/mu2e/data/users/wzhou2/GNN/root_files/` (50 files, 97 GB) |
 | ROOT files v2 (ancestry) | `/exp/mu2e/data/users/wzhou2/GNN/root_files_v2/` (18 valid of 50, with `ancestorSimIds`; 30 need reprocessing) |
+| ROOT files v1 (legacy) | `/exp/mu2e/data/users/wzhou2/GNN/root_files/` (50 files, 97 GB — no ancestry, do not use for new work) |
 | Packed graphs | `data/processed/{train,val,test}.pt` |
 | Node/edge norm stats | `data/normalization_stats.pt` |
 | Crystal geometry | `data/crystal_geometry.csv`, `data/crystal_neighbors.csv` |
-| Splits (frozen) | `splits/{train,val,test}_files.txt` |
+| Splits | `splits/{train,val,test}_files.txt` (will be regenerated for v2 files) |
 | EventNtuple build | `/exp/mu2e/app/users/wzhou2/working_dir/` (EventNtuple + Offline + Production) |
+| v1 results archive | `~/gnn_v1_results.tar.gz` (35 MB — old outputs, plots, training runs) |
 
-ROOT files are MDC2025-002 format (`EventNtuple/ntuple` TTree). MC truth via `calohitsmc` branches.
+ROOT files are v2 reprocessed MDC2025-002 format (`EventNtuple/ntuple` TTree) with `calomcsim.ancestorSimIds` branch.
 
 ---
 
 ## Truth labeling
 
-**Old truth** (`src/data/truth_labels.py`):
-- Groups by dominant SimParticle ID per hit; ambiguous if purity < 0.7
-- Truth cluster = (dominant SimParticle, disk) pair
-- Problem: 53% of truth clusters are singletons from secondary shower products
+**RULE: Use calo-entrant truth exclusively.** All graph building, training, evaluation, and analysis must use `src/data/truth_labels_primary.py` (calo-entrant truth). The old SimParticle-level truth (`src/data/truth_labels.py`) is retained only for reference — never use it for new work. v2 ROOT files (with `calomcsim.ancestorSimIds`) are required.
 
-**New truth** (`src/data/truth_labels_primary.py`, Task 11):
+**Calo-entrant truth** (`src/data/truth_labels_primary.py`):
 - Groups by **calo-entrant ancestor** — the highest ancestor in the Geant4 parent chain that also deposited in the same disk
 - Energy deposits from same-shower SimParticles sum before purity check
 - Requires v2 ROOT files with `calomcsim.ancestorSimIds` branch
-- Result: ambiguity drops 57% (4.1% → 1.7%), singletons drop 14% (53% → 48%), merges halved
+- Ambiguity: 1.7% (vs 4.1% under old truth)
+- Singletons: 48% (vs 53% under old truth, irreducible — see below)
 
 **Remaining singletons (48%) are irreducible pileup:**
 - 66% photons (eBrem from upstream), 25% electrons, 4% neutrons
@@ -202,7 +200,9 @@ ROOT files are MDC2025-002 format (`EventNtuple/ntuple` TTree). MC truth via `ca
 
 ## Model results summary
 
-**Test set (4,000 events, 6,996 disk-graphs, run once):**
+### v1 campaign (old SimParticle truth) — historical reference
+
+**Test set (4,000 events, 6,996 disk-graphs, old truth):**
 
 | Metric | BFS | SimpleEdgeNet (t=0.34) | CaloClusterNetV1 (t=0.30) |
 |--------|-----|------------------------|---------------------------|
@@ -213,11 +213,6 @@ ROOT files are MDC2025-002 format (`EventNtuple/ntuple` TTree). MC truth via `ca
 | Splits | 385 | **208** | 235 |
 | Merges | 2,940 | 2,878 | **2,808** |
 
-**Frozen checkpoints & thresholds (tuned on val, do not change):**
-- SimpleEdgeNet: `outputs/runs/simple_edge_net_v1/checkpoints/best_model.pt`, t_edge=0.34
-- CaloClusterNetV1: `outputs/runs/calo_cluster_net_v1_stage1/checkpoints/best_model.pt`, t_edge=0.30
-- Production cleanup: `min_hits=2`, `min_energy_mev=10.0`
-
 **Calo-entrant truth re-evaluation (val set, 1,500 events, no retraining):**
 
 | Method | Truth | Truth MR | Purity | Merges |
@@ -227,32 +222,37 @@ ROOT files are MDC2025-002 format (`EventNtuple/ntuple` TTree). MC truth via `ca
 | CaloClusterNetV1 | old | 88.5% | 0.9734 | 977 |
 | CaloClusterNetV1 | **new** | **94.7%** | **0.9882** | **480** |
 
-~50% of old merge errors were artificial (same shower, different SimParticle IDs). Script: `scripts/evaluate_new_truth.py`.
+**Key finding:** ~50% of old merge errors were artificial (same shower, different SimParticle IDs). Switching to calo-entrant truth halved merges and boosted truth match rate by +6.2% without retraining. This motivated the full v2 rebuild.
+
+v1 outputs archived in `~/gnn_v1_results.tar.gz` (2026-04-05).
+
+### v2 campaign (calo-entrant truth, retrained) — pending
+
+All models will be retrained from scratch on v2 ROOT files using calo-entrant truth exclusively. New results will appear here after the rebuild.
 
 ---
 
-## Failure audit findings (Task 10)
+## Failure audit findings (v1 campaign) — historical reference
 
-**Root cause of remaining errors:** The dominant failure is a single confident bridge edge (median score 0.65, threshold 0.30) merging a singleton truth cluster into a nearby cluster. 93% of merges involve at least one single-hit truth cluster. The model is not borderline wrong — it genuinely believes these cross-cluster edges belong together.
+**Root cause of v1 merge errors:** 93% of merges involved at least one singleton truth cluster. The dominant failure was a single confident bridge edge (median score 0.65, threshold 0.30) merging a singleton into a nearby cluster. The model was not borderline wrong — it genuinely believed these cross-cluster edges belonged together.
 
-**Key insight:** This is a truth-target / observability mismatch, not a model weakness. The current truth is defined by SimParticle ancestry (MC genealogy), but a single-hit truth object has no shape, spread, or internal structure that distinguishes it from a neighboring cluster at the hit level. The model is being penalized for failing to recover distinctions that exist in MC bookkeeping but not in the detector observables.
+**Key insight:** This was a truth-target / observability mismatch, not a model weakness. A single-hit truth object has no shape or structure distinguishing it from a neighboring cluster at the hit level. The model was penalized for failing to recover distinctions that exist in MC bookkeeping but not in detector observables.
 
-**Implication:** The project is less limited by model design than by whether SimParticle-based truth labels are the right reconstruction target, especially for singleton truth clusters.
+**Resolution:** Redefined truth at the calo-entrant level (Task 11). Merges halved, truth match +6.2%, no retraining needed. This motivated the full v2 rebuild.
 
-**Resolution (Task 11, implemented):** Redefined truth at the **calo-entrant level** — trace each SimParticle back to its highest ancestor that deposited in the same disk. This collapses secondary shower products into parent showers. Result: merges halved, truth match rate +6.2%, all without retraining. See `src/data/truth_labels_primary.py`.
-
-Full audit: `outputs/failure_audit/audit_summary.json`, analysis script: `scripts/failure_audit.py`.
+Full v1 audit archived in `~/gnn_v1_results.tar.gz` under `outputs/failure_audit/`.
 
 ---
 
 ## Critical invariants — never violate these
 
-1. **MC truth only:** All truth labels from `calohitsmc.simParticleIds` + `calohitsmc.eDeps`. Never use BFS reco (`clusterIdx_`) as truth. Only MDC2025-002 files.
-2. **Split discipline:** `splits/` files are frozen. Never re-split.
-3. **Normalization:** `data/normalization_stats.pt` computed from train split only.
-4. **Threshold tuning:** Always on validation set. Never on test set. Report final metrics once on test.
-5. **Graph unit:** One graph per disk per event. Disk 0 and Disk 1 are separate graphs.
-6. **Graph r_max:** 210mm (tuned for 100% pair recall).
+1. **Calo-entrant truth only:** All truth labels via `src/data/truth_labels_primary.py` using `calomcsim.ancestorSimIds` from v2 ROOT files. Never use old SimParticle-level truth (`truth_labels.py`) for training, evaluation, or graph building. Never use BFS reco (`clusterIdx_`) as truth.
+2. **v2 ROOT files only:** All data pipelines must use v2 files (`root_files_v2/`) with ancestry branches. v1 files (`root_files/`) are legacy — do not use for new work.
+3. **Split discipline:** `splits/` files will be regenerated for v2 files, then frozen. Never re-split after that.
+4. **Normalization:** `data/normalization_stats.pt` computed from train split only.
+5. **Threshold tuning:** Always on validation set. Never on test set. Report final metrics once on test.
+6. **Graph unit:** One graph per disk per event. Disk 0 and Disk 1 are separate graphs.
+7. **Graph r_max:** 210mm (tuned for 100% pair recall).
 
 ---
 
