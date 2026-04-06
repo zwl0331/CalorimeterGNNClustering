@@ -103,7 +103,7 @@ python3 scripts/train_gnn.py --config configs/calo_cluster_net_v1_stage2.yaml --
 
 # Threshold tuning on val set (model-agnostic)
 python3 scripts/tune_threshold.py
-python3 scripts/tune_threshold.py --config configs/calo_cluster_net_v1.yaml --checkpoint outputs/runs/calo_cluster_net_v1_stage1/checkpoints/best_model.pt
+python3 scripts/tune_threshold.py --config configs/calo_cluster_net_v1.yaml --checkpoint outputs/runs/calo_cluster_net_v1_v2_stage1/checkpoints/best_model.pt
 
 # Test set evaluation (run ONCE)
 OMP_NUM_THREADS=4 PYTHONUNBUFFERED=1 python3 -u scripts/evaluate_test.py --n-events 500
@@ -114,6 +114,7 @@ python3 scripts/failure_audit.py
 # 3-panel event displays: MC Truth | BFS | GNN
 python3 scripts/plot_gnn_clusters.py --n-events 6
 python3 scripts/plot_gnn_clusters.py --find-failures --n-scan 200
+python3 scripts/plot_gnn_clusters.py --find-successes --n-scan 200
 
 # Validate ancestry data in v2 ROOT files
 OMP_NUM_THREADS=4 python3 scripts/validate_ancestry.py --max-events 500
@@ -226,23 +227,46 @@ ROOT files are v2 reprocessed MDC2025-002 format (`EventNtuple/ntuple` TTree) wi
 
 v1 outputs archived in `~/gnn_v1_results.tar.gz` (2026-04-05).
 
-### v2 campaign (calo-entrant truth, retrained) — in progress
+### v2 campaign (calo-entrant truth, retrained)
 
-**Data pipeline complete (2026-04-05):** 50 v2 ROOT files reprocessed via FermiGrid, 41,656 graphs built with calo-entrant truth (29,143 train / 5,793 val / 6,720 test), normalization computed, packed. Ready for GPU training.
+**Data:** 50 v2 ROOT files via FermiGrid, 41,656 graphs (29,143 train / 5,793 val / 6,720 test).
 
-**v2 results — pending training.** Models will be retrained from scratch. Results will appear here after Steps 5-10.
+**Training (2026-04-05, A100 GPU):**
+
+| Model | Best Val F1 | Best Epoch | Epochs |
+|-------|-----------|------------|--------|
+| SimpleEdgeNet | 0.966 | 9 | 24 (early stop) |
+| CaloClusterNetV1 (Stage 1) | 0.961 | 13 | 28 (early stop) |
+
+**Threshold tuning (val set):** SimpleEdgeNet τ_edge=0.26 (F1=0.9734), CaloClusterNetV1 τ_edge=0.20 (F1=0.9748). Frozen in configs.
+
+**Test set (4,000 events, 6,996 disk-graphs, calo-entrant truth):**
+
+| Metric | BFS | SimpleEdgeNet (τ=0.26) | CaloClusterNetV1 (τ=0.20) |
+|--------|-----|------------------------|---------------------------|
+| Reco match rate | 96.5% | **97.1%** | **97.1%** |
+| Truth match rate | **94.3%** | 94.0% | 94.2% |
+| Mean purity | 0.9877 | 0.9875 | **0.9877** |
+| Mean completeness | 0.9951 | 0.9981 | **0.9982** |
+| Splits | 467 | 238 | **214** |
+| Merges | 1,533 | 1,480 | **1,454** |
+
+**v2 vs v1 improvement:** Truth match +6.2% (88→94%), purity +0.015, merges halved (2,940→1,454). Both GNNs beat BFS on reco match rate, completeness, splits, and merges.
+
+**Checkpoints:** `outputs/runs/simple_edge_net_v2/`, `outputs/runs/calo_cluster_net_v1_v2_stage1/`.
 
 ---
 
-## Failure audit findings (v1 campaign) — historical reference
+## Failure audit findings (v2 campaign)
 
-**Root cause of v1 merge errors:** 93% of merges involved at least one singleton truth cluster. The dominant failure was a single confident bridge edge (median score 0.65, threshold 0.30) merging a singleton into a nearby cluster. The model was not borderline wrong — it genuinely believed these cross-cluster edges belonged together.
+**v2 audit (CaloClusterNetV1, τ=0.20, val set, 5,793 graphs):**
+- Total merges: 1,512 (down from 2,289 in v1)
+- 75% of merges caused by ≤2 bridge edges; median bridge score 0.59 (threshold 0.20)
+- 93.8% of merges involve at least one singleton truth cluster
+- Precision 0.957 (up from 0.882 in v1), Recall 0.993
+- Remaining merges are irreducible: physically indistinguishable singletons adjacent to clusters
 
-**Key insight:** This was a truth-target / observability mismatch, not a model weakness. A single-hit truth object has no shape or structure distinguishing it from a neighboring cluster at the hit level. The model was penalized for failing to recover distinctions that exist in MC bookkeeping but not in detector observables.
-
-**Resolution:** Redefined truth at the calo-entrant level (Task 11). Merges halved, truth match +6.2%, no retraining needed. This motivated the full v2 rebuild.
-
-Full v1 audit archived in `~/gnn_v1_results.tar.gz` under `outputs/failure_audit/`.
+Full audit in `outputs/failure_audit/audit_summary.json`.
 
 ---
 
