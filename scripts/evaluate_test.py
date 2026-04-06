@@ -37,32 +37,43 @@ import yaml
 
 from src.data.graph_builder import build_graph, compute_edge_features, compute_node_features
 from src.data.normalization import load_stats, normalize_graph
+from src.data.truth_labels_primary import build_calo_root_map
 from src.geometry.crystal_geometry import load_crystal_map
 from src.inference.cluster_reco import reconstruct_clusters
 from src.models import build_model
 from torch_geometric.data import Data
 
 
-def build_mc_truth_clusters(simids, edeps, disks, nhits, purity_thresh=0.7):
-    """Build MC truth cluster labels per hit.
+def build_mc_truth_clusters(simids, edeps, disks, nhits,
+                            calo_root_map, purity_thresh=0.7):
+    """Build MC truth cluster labels per hit using calo-entrant truth.
 
-    Returns truth_labels (int array, -1 = ambiguous/unassigned) and
-    per-truth-cluster metadata: {cluster_id: (energy, n_hits)}.
+    Groups energy deposits by calo-entrant root before computing purity.
+
+    Returns truth_labels (int array, -1 = ambiguous/unassigned).
     """
     truth_labels = np.full(nhits, -1, dtype=np.int64)
-    cluster_map = {}  # (disk, simparticle) -> label
+    cluster_map = {}  # (disk, calo_root) -> label
     next_label = 0
 
     for i in range(nhits):
         sids = np.array(simids[i])
-        deps = np.array(edeps[i])
+        deps = np.array(edeps[i], dtype=np.float64)
         if len(sids) == 0 or deps.sum() <= 0:
             continue
-        best = np.argmax(deps)
-        purity = deps[best] / deps.sum()
+        disk = int(disks[i])
+
+        # Group energy by calo-entrant root
+        root_edep = {}
+        for pid, dep in zip(sids, deps):
+            root = calo_root_map.get((int(pid), disk), int(pid))
+            root_edep[root] = root_edep.get(root, 0.0) + float(dep)
+
+        best_root = max(root_edep, key=root_edep.get)
+        purity = root_edep[best_root] / deps.sum()
         if purity < purity_thresh:
             continue
-        key = (int(disks[i]), int(sids[best]))
+        key = (disk, best_root)
         if key not in cluster_map:
             cluster_map[key] = next_label
             next_label += 1
@@ -213,9 +224,9 @@ def main():
     parser = argparse.ArgumentParser(
         description="Test set evaluation: GNN vs BFS (run once)")
     parser.add_argument("--root-dir", type=str,
-                        default="/exp/mu2e/data/users/wzhou2/GNN/root_files")
+                        default="/exp/mu2e/data/users/wzhou2/GNN/root_files_v2")
     parser.add_argument("--checkpoint", type=str,
-                        default="outputs/runs/simple_edge_net_v1/checkpoints/best_model.pt")
+                        default="outputs/runs/simple_edge_net_v2/checkpoints/best_model.pt")
     parser.add_argument("--config", type=str, default="configs/default.yaml")
     parser.add_argument("--output-dir", type=str, default=None,
                         help="Output directory (default: outputs/test_eval_<model>)")
@@ -284,7 +295,11 @@ def main():
         "calohits.crystalPos_.fCoordinates.fX",
         "calohits.crystalPos_.fCoordinates.fY",
         "calohitsmc.simParticleIds", "calohitsmc.eDeps",
+        "calomcsim.id", "calomcsim.ancestorSimIds",
     ]
+
+    # Crystal disk map for calo-entrant truth
+    crystal_disk_map = {cid: disk for cid, (disk, _, _) in crystal_map.items()}
 
     bfs_results = []
     gnn_results = []
@@ -319,6 +334,13 @@ def main():
             simids = arrays["calohitsmc.simParticleIds"][ev]
             edeps_mc = arrays["calohitsmc.eDeps"][ev]
 
+            # Build calo-entrant root map for this event
+            sim_ids_evt = arrays["calomcsim.id"][ev]
+            ancestor_ids_evt = arrays["calomcsim.ancestorSimIds"][ev]
+            calo_root_map = build_calo_root_map(
+                sim_ids_evt, ancestor_ids_evt,
+                simids, cryids, crystal_disk_map)
+
             disks = np.array([crystal_map[int(c)][0] if int(c) in crystal_map
                               else -1 for c in cryids], dtype=np.int64)
 
@@ -346,9 +368,9 @@ def main():
                 d_simids = [list(simids[i]) for i in disk_indices]
                 d_edeps = [list(edeps_mc[i]) for i in disk_indices]
 
-                # MC truth clusters
+                # MC truth clusters (calo-entrant truth)
                 mc_truth = build_mc_truth_clusters(d_simids, d_edeps, d_disks,
-                                                   n_disk)
+                                                   n_disk, calo_root_map)
 
                 # ── BFS ──
                 bfs_match, bfs_td = match_clusters_detail(d_cidx, mc_truth, d_e)

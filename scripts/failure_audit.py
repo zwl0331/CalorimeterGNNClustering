@@ -315,7 +315,7 @@ def main():
     parser = argparse.ArgumentParser(description="GNN failure audit")
     parser.add_argument("--config", default="configs/calo_cluster_net_v1.yaml")
     parser.add_argument("--checkpoint",
-                        default="outputs/runs/calo_cluster_net_v1_stage1/checkpoints/best_model.pt")
+                        default="outputs/runs/calo_cluster_net_v1_v2_stage1/checkpoints/best_model.pt")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--max-graphs", type=int, default=None,
                         help="Limit number of graphs to analyze (default: all)")
