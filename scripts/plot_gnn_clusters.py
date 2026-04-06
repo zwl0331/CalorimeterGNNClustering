@@ -45,41 +45,68 @@ import matplotlib.colors as mcolors
 
 from src.data.graph_builder import build_graph, compute_edge_features, compute_node_features
 from src.data.normalization import load_stats, normalize_graph
+from src.data.truth_labels_primary import build_calo_root_map
 from src.geometry.crystal_geometry import load_crystal_map
 from src.inference.cluster_reco import reconstruct_clusters
 from src.models import build_model
 from torch_geometric.data import Data
 
+# ── Plot style ──────────────────────────────────────────────────────
+plt.rcParams.update({
+    "font.family": "sans-serif",
+    "font.sans-serif": ["DejaVu Sans", "Helvetica", "Arial"],
+    "font.size": 12,
+    "axes.titlesize": 14,
+    "axes.labelsize": 12,
+    "xtick.labelsize": 10,
+    "ytick.labelsize": 10,
+    "legend.fontsize": 11,
+    "figure.titlesize": 15,
+    "axes.linewidth": 0.8,
+    "xtick.major.width": 0.6,
+    "ytick.major.width": 0.6,
+})
+
 CRYSTAL_PITCH = 34.3
 CRYSTAL_SIZE = CRYSTAL_PITCH * 0.92
 
+# Perceptually distinct, colorblind-friendly palette (tab20 inspired)
 CLUSTER_COLORS = [
-    "#e41a1c", "#377eb8", "#4daf4a", "#984ea3", "#ff7f00",
-    "#a65628", "#f781bf", "#999999", "#66c2a5", "#fc8d62",
-    "#8da0cb", "#e78ac3", "#a6d854", "#ffd92f", "#e5c494",
-    "#b3b3b3", "#1b9e77", "#d95f02", "#7570b3", "#e7298a",
+    "#1f77b4", "#d62728", "#2ca02c", "#9467bd", "#ff7f0e",
+    "#8c564b", "#e377c2", "#17becf", "#bcbd22", "#7f7f7f",
+    "#aec7e8", "#ffbb78", "#98df8a", "#c5b0d5", "#ff9896",
+    "#c49c94", "#f7b6d2", "#dbdb8d", "#9edae5", "#c7c7c7",
 ]
-UNCLUSTERED_COLOR = "#cccccc"
+UNCLUSTERED_COLOR = "#d9d9d9"
+BG_CRYSTAL_FACE = "#f0f0f0"
+BG_CRYSTAL_EDGE = "#d5d5d5"
+PANEL_BG = "#fafafa"
 
 # Red-to-green colormap for edge probabilities
 EDGE_CMAP = plt.cm.RdYlGn
 
 
-def build_mc_truth_clusters(simids, edeps, disks, nhits, purity_thresh=0.7):
-    """Build MC truth cluster labels per hit (-1 = ambiguous)."""
+def build_mc_truth_clusters(simids, edeps, disks, nhits,
+                            calo_root_map, purity_thresh=0.7):
+    """Build MC truth cluster labels per hit using calo-entrant truth."""
     truth_labels = np.full(nhits, -1, dtype=np.int64)
     cluster_map = {}
     next_label = 0
     for i in range(nhits):
         sids = np.array(simids[i])
-        deps = np.array(edeps[i])
+        deps = np.array(edeps[i], dtype=np.float64)
         if len(sids) == 0 or deps.sum() <= 0:
             continue
-        best = np.argmax(deps)
-        purity = deps[best] / deps.sum()
+        disk = int(disks[i])
+        root_edep = {}
+        for pid, dep in zip(sids, deps):
+            root = calo_root_map.get((int(pid), disk), int(pid))
+            root_edep[root] = root_edep.get(root, 0.0) + float(dep)
+        best_root = max(root_edep, key=root_edep.get)
+        purity = root_edep[best_root] / deps.sum()
         if purity < purity_thresh:
             continue
-        key = (int(disks[i]), int(sids[best]))
+        key = (disk, best_root)
         if key not in cluster_map:
             cluster_map[key] = next_label
             next_label += 1
@@ -136,8 +163,13 @@ def assign_colors(labels):
 
 def draw_panel(ax, hit_x, hit_y, hit_energy, labels, disk_id, crystal_map,
                title, edge_index=None, edge_probs=None,
-               merged_clusters=None, split_clusters=None, truth_labels=None):
-    """Draw one panel of the 3-panel display."""
+               merged_clusters=None, split_clusters=None, truth_labels=None,
+               focus_hits=None):
+    """Draw one panel of the 3-panel display.
+
+    If *focus_hits* is provided (set of hit indices), non-focus hits are
+    drawn very faintly so the failing clusters stand out.
+    """
     half = CRYSTAL_SIZE / 2
     n_hits = len(hit_x)
     e_max = hit_energy.max() if hit_energy.max() > 0 else 1.0
@@ -149,8 +181,8 @@ def draw_panel(ax, hit_x, hit_y, hit_energy, labels, disk_id, crystal_map,
             continue
         bg_patches.append(Rectangle((cx - half, cy - half),
                                      CRYSTAL_SIZE, CRYSTAL_SIZE))
-    pc_bg = PatchCollection(bg_patches, facecolor="#e8e8e8",
-                            edgecolor="#cccccc", linewidth=0.3, zorder=1)
+    pc_bg = PatchCollection(bg_patches, facecolor=BG_CRYSTAL_FACE,
+                            edgecolor=BG_CRYSTAL_EDGE, linewidth=0.3, zorder=1)
     ax.add_collection(pc_bg)
 
     # Draw edges (only on GNN panel, colored by probability)
@@ -164,48 +196,92 @@ def draw_panel(ax, hit_x, hit_y, hit_energy, labels, disk_id, crystal_map,
             if key in seen:
                 continue
             seen.add(key)
+            # Dim edges not involving focus hits
+            ea = 0.6
+            if focus_hits is not None and s not in focus_hits and d not in focus_hits:
+                ea = 0.08
             lines.append([(hit_x[s], hit_y[s]), (hit_x[d], hit_y[d])])
-            colors.append(EDGE_CMAP(edge_probs[ei]))
+            c = list(EDGE_CMAP(edge_probs[ei]))
+            c[3] = ea
+            colors.append(c)
         if lines:
-            lc = LineCollection(lines, colors=colors, linewidths=0.8,
-                                zorder=2, alpha=0.6)
+            lc = LineCollection(lines, colors=colors, linewidths=1.2,
+                                zorder=2)
             ax.add_collection(lc)
 
     # Color map for this panel's clusters
     cmap = assign_colors(labels)
 
-    # Draw hit crystals
+    # Group hits by crystal position for multi-hit handling
+    pos_hits = defaultdict(list)  # (rounded x, y) -> [hit indices]
     for i in range(n_hits):
-        cid = labels[i]
-        if cid >= 0:
-            color = cmap[cid]
-            alpha = 0.5 + 0.5 * (hit_energy[i] / e_max)
-        else:
-            color = UNCLUSTERED_COLOR
-            alpha = 0.5
+        pos_key = (round(hit_x[i], 1), round(hit_y[i], 1))
+        pos_hits[pos_key].append(i)
 
-        # Mark merged/split clusters with thick border
-        lw = 1.0
-        ec = "black"
-        if merged_clusters and cid in merged_clusters:
-            lw = 2.5
-            ec = "red"
-        if split_clusters and truth_labels is not None:
-            tc = truth_labels[i]
-            if tc in split_clusters:
-                lw = 2.5
-                ec = "darkorange"
+    # Draw hit crystals
+    for pos_key, hit_indices in pos_hits.items():
+        n_at_pos = len(hit_indices)
 
-        rect = Rectangle((hit_x[i] - half, hit_y[i] - half),
-                          CRYSTAL_SIZE, CRYSTAL_SIZE,
-                          facecolor=color, edgecolor=ec,
-                          linewidth=lw, alpha=alpha, zorder=4)
-        ax.add_patch(rect)
+        for slot, i in enumerate(hit_indices):
+            in_focus = (focus_hits is None) or (i in focus_hits)
+            cid = labels[i]
+            if cid >= 0:
+                color = cmap[cid]
+                alpha = 0.5 + 0.5 * (hit_energy[i] / e_max)
+            else:
+                color = UNCLUSTERED_COLOR
+                alpha = 0.5
 
-        # Energy label
-        ax.text(hit_x[i], hit_y[i], f"{hit_energy[i]:.1f}",
-                fontsize=5, ha="center", va="center", color="black",
-                zorder=5, style="italic")
+            # Dim non-focus hits
+            if not in_focus:
+                alpha = 0.1
+
+            # Mark merged/split clusters with thick border
+            lw = 0.8
+            ec = "#333333"
+            if merged_clusters and cid in merged_clusters:
+                lw = 3.0
+                ec = "#cc0000"
+            if split_clusters and truth_labels is not None:
+                tc = truth_labels[i]
+                if tc in split_clusters:
+                    lw = 3.0
+                    ec = "#e67300"
+
+            cx, cy = hit_x[i], hit_y[i]
+
+            if n_at_pos == 1:
+                # Single hit — full crystal
+                rect = Rectangle((cx - half, cy - half),
+                                  CRYSTAL_SIZE, CRYSTAL_SIZE,
+                                  facecolor=color, edgecolor=ec,
+                                  linewidth=lw, alpha=alpha, zorder=4)
+                ax.add_patch(rect)
+            else:
+                # Multi-hit — split crystal into horizontal bands
+                band_h = CRYSTAL_SIZE / n_at_pos
+                band_y = cy - half + slot * band_h
+                rect = Rectangle((cx - half, band_y),
+                                  CRYSTAL_SIZE, band_h,
+                                  facecolor=color, edgecolor=ec,
+                                  linewidth=lw, alpha=alpha,
+                                  zorder=4 + slot)
+                ax.add_patch(rect)
+
+            # Energy label
+            text_alpha = 1.0 if in_focus else 0.12
+            fs = 8 if in_focus else 5
+
+            if n_at_pos == 1:
+                ty = cy
+            else:
+                ty = cy - half + (slot + 0.5) * (CRYSTAL_SIZE / n_at_pos)
+                fs = max(5, fs - 1)  # slightly smaller for stacked labels
+
+            ax.text(cx, ty, f"{hit_energy[i]:.1f}",
+                    fontsize=fs, ha="center", va="center", color="#1a1a1a",
+                    fontweight="semibold" if in_focus else "normal",
+                    zorder=5 + slot, alpha=text_alpha)
 
     # Count clusters
     unique_ids = sorted(set(labels[labels >= 0].tolist()))
@@ -213,86 +289,135 @@ def draw_panel(ax, hit_x, hit_y, hit_energy, labels, disk_id, crystal_map,
     n_unclust = (labels == -1).sum()
     total_e = hit_energy.sum()
 
-    subtitle = f"{n_clust} clusters, {n_hits} hits, E={total_e:.0f} MeV"
+    subtitle = f"{n_clust} clusters, {n_hits} hits, E = {total_e:.0f} MeV"
     if n_unclust > 0:
         subtitle += f", {n_unclust} unclustered"
-    ax.set_title(f"{title}\n{subtitle}", fontsize=10)
+    ax.set_title(f"{title}\n{subtitle}", fontsize=13, fontweight="bold",
+                 pad=10)
 
     ax.set_aspect("equal")
-    ax.set_facecolor("#f7f7f7")
-    ax.grid(True, linewidth=0.2, alpha=0.3, zorder=0)
+    ax.set_facecolor(PANEL_BG)
+    ax.set_xlabel("x (mm)", fontsize=11)
+    ax.set_ylabel("y (mm)", fontsize=11)
+    ax.tick_params(axis="both", which="major", labelsize=9)
+    ax.grid(False)
+
+
+def _get_failure_focus(gnn_labels, truth_labels, merged_preds, split_truths):
+    """Return set of hit indices involved in any merge or split."""
+    focus = set()
+    for i in range(len(gnn_labels)):
+        if gnn_labels[i] in merged_preds:
+            focus.add(i)
+        if truth_labels[i] in split_truths:
+            focus.add(i)
+    return focus
 
 
 def plot_event_3panel(hit_x, hit_y, hit_energy, disk_id,
                       truth_labels, bfs_labels, gnn_labels,
                       edge_index, edge_probs,
-                      crystal_map, out_path, event_label=""):
-    """Plot 3-panel display: Truth | BFS | GNN."""
+                      crystal_map, out_path, event_label="",
+                      zoomed=False, focus_override=None):
+    """Plot 3-panel display: Truth | BFS | GNN.
+
+    If *zoomed* is True, zoom into the failing clusters, dim irrelevant
+    hits, and label panels as "zoomed".
+
+    *focus_override* — explicit set of hit indices to zoom into (e.g.
+    BFS failure hits for success displays).
+    """
     fig, axes = plt.subplots(1, 3, figsize=(36, 12))
 
     # Detect GNN failure modes
     merged_preds, split_truths = detect_failures(
         gnn_labels, truth_labels, hit_energy)
 
-    # Compute axis limits from hit positions
-    pad = 80
-    xlim = (hit_x.min() - pad, hit_x.max() + pad)
-    ylim = (hit_y.min() - pad, hit_y.max() + pad)
+    merged_set = set(merged_preds)
+    split_set = set(split_truths)
+
+    # Focus hits and zoom limits
+    focus_hits = None
+    if focus_override:
+        focus_hits = focus_override
+    elif zoomed and (merged_preds or split_truths):
+        focus_hits = _get_failure_focus(
+            gnn_labels, truth_labels, merged_set, split_set)
+
+    if focus_hits:
+        fx = hit_x[list(focus_hits)]
+        fy = hit_y[list(focus_hits)]
+        pad = 120
+        xlim = (fx.min() - pad, fx.max() + pad)
+        ylim = (fy.min() - pad, fy.max() + pad)
+    else:
+        pad = 80
+        xlim = (hit_x.min() - pad, hit_x.max() + pad)
+        ylim = (hit_y.min() - pad, hit_y.max() + pad)
+
+    zoom_tag = "  (zoomed)" if zoomed else ""
 
     # Panel 1: MC Truth
     draw_panel(axes[0], hit_x, hit_y, hit_energy, truth_labels,
-               disk_id, crystal_map, "MC Truth")
+               disk_id, crystal_map, f"MC Truth{zoom_tag}",
+               focus_hits=focus_hits)
 
     # Panel 2: BFS
     draw_panel(axes[1], hit_x, hit_y, hit_energy, bfs_labels,
-               disk_id, crystal_map, "BFS Reco")
+               disk_id, crystal_map, f"BFS Reco{zoom_tag}",
+               focus_hits=focus_hits)
 
     # Panel 3: GNN
     gnn_title = "GNN Predicted"
     annotations = []
     if merged_preds:
-        annotations.append(f"{len(merged_preds)} merge(s)")
+        annotations.append(f"{len(merged_preds)} merge")
     if split_truths:
-        annotations.append(f"{len(split_truths)} split(s)")
+        annotations.append(f"{len(split_truths)} split")
     if annotations:
-        gnn_title += f" [{', '.join(annotations)}]"
+        gnn_title += f"  ({', '.join(annotations)})"
+    gnn_title += zoom_tag
 
     draw_panel(axes[2], hit_x, hit_y, hit_energy, gnn_labels,
                disk_id, crystal_map, gnn_title,
                edge_index=edge_index, edge_probs=edge_probs,
-               merged_clusters=set(merged_preds),
-               split_clusters=set(split_truths),
-               truth_labels=truth_labels)
+               merged_clusters=merged_set,
+               split_clusters=split_set,
+               truth_labels=truth_labels,
+               focus_hits=focus_hits)
 
     # Set consistent limits
     for ax in axes:
         ax.set_xlim(*xlim)
         ax.set_ylim(*ylim)
 
-    # Legend
+    # Legend — clean, compact
     legend_handles = [
-        Line2D([0], [0], color=EDGE_CMAP(0.0), linewidth=2,
-               label="Edge prob ~0 (different cluster)"),
-        Line2D([0], [0], color=EDGE_CMAP(1.0), linewidth=2,
-               label="Edge prob ~1 (same cluster)"),
-        Patch(facecolor=UNCLUSTERED_COLOR, edgecolor="black", linewidth=0.5,
-              label="Unclustered (label=-1)"),
-        Patch(facecolor="white", edgecolor="red", linewidth=2.5,
+        Line2D([0], [0], color=EDGE_CMAP(0.0), linewidth=2.5,
+               label="Edge prob \u2248 0"),
+        Line2D([0], [0], color=EDGE_CMAP(1.0), linewidth=2.5,
+               label="Edge prob \u2248 1"),
+        Patch(facecolor=UNCLUSTERED_COLOR, edgecolor="#666666", linewidth=0.5,
+              label="Unclustered"),
+        Patch(facecolor="white", edgecolor="#cc0000", linewidth=2.5,
               label="Merged cluster"),
-        Patch(facecolor="white", edgecolor="darkorange", linewidth=2.5,
+        Patch(facecolor="white", edgecolor="#e67300", linewidth=2.5,
               label="Split cluster"),
     ]
     fig.legend(handles=legend_handles, loc="lower center", ncol=5,
-               fontsize=9, frameon=True, bbox_to_anchor=(0.5, -0.02))
+               fontsize=11, frameon=True, framealpha=0.9,
+               edgecolor="#cccccc", bbox_to_anchor=(0.5, -0.01))
 
-    fig.suptitle(event_label, fontsize=12, fontweight="bold", y=1.01)
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    fig.suptitle(event_label, fontsize=15, fontweight="bold", y=1.02)
+    fig.tight_layout(w_pad=3)
+    fig.savefig(out_path, dpi=180, bbox_inches="tight",
+                facecolor="white", edgecolor="none")
     plt.close(fig)
 
 
 def process_event_disk(arrays, ev, disk_id, crystal_map, graph_cfg,
-                       model, stats, device, tau_edge, tau_node=None):
+                       model, stats, device, tau_edge, tau_node=None,
+                       calo_root_map=None):
     """Extract one event-disk, run GNN, return all data for plotting.
 
     Returns None if the disk has < 2 hits.
@@ -337,7 +462,8 @@ def process_event_disk(arrays, ev, disk_id, crystal_map, graph_cfg,
     d_simids = [list(simids[i]) for i in disk_indices]
     d_edeps = [list(edeps_mc[i]) for i in disk_indices]
 
-    mc_truth = build_mc_truth_clusters(d_simids, d_edeps, d_disks, n_disk)
+    mc_truth = build_mc_truth_clusters(d_simids, d_edeps, d_disks, n_disk,
+                                       calo_root_map)
 
     # Build graph and run GNN
     edge_index, _ = build_graph(
@@ -397,9 +523,9 @@ def main():
     parser = argparse.ArgumentParser(
         description="3-panel event display: MC Truth | BFS | GNN")
     parser.add_argument("--root-dir", type=str,
-                        default="/exp/mu2e/data/users/wzhou2/GNN/root_files")
+                        default="/exp/mu2e/data/users/wzhou2/GNN/root_files_v2")
     parser.add_argument("--checkpoint", type=str,
-                        default="outputs/runs/simple_edge_net_v1/checkpoints/best_model.pt")
+                        default="outputs/runs/simple_edge_net_v2/checkpoints/best_model.pt")
     parser.add_argument("--config", type=str, default="configs/default.yaml")
     parser.add_argument("--split", type=str, default="val",
                         choices=["val", "test"],
@@ -413,8 +539,12 @@ def main():
     parser.add_argument("--find-failures", action="store_true",
                         help="Scan events to find and plot failure cases "
                              "(merges/splits)")
+    parser.add_argument("--find-successes", action="store_true",
+                        help="Scan events to find and plot cases where "
+                             "GNN clustering was very good (no failures, "
+                             "many clusters)")
     parser.add_argument("--n-scan", type=int, default=200,
-                        help="Events to scan in --find-failures mode")
+                        help="Events to scan in --find-failures/successes mode")
     parser.add_argument("--output-dir", type=str, default=None,
                         help="Output directory (default: outputs/gnn_cluster_display_<model>)")
     parser.add_argument("--device", type=str, default=None)
@@ -434,7 +564,9 @@ def main():
     graph_cfg = cfg["graph"]
     model_name = cfg["model"].get("name", "SimpleEdgeNet")
     has_node_head = model_name == "CaloClusterNetV1"
-    tau_node = cfg["inference"].get("tau_node") if has_node_head else None
+    # Only apply tau_node if the node head was actually trained (lambda_node > 0)
+    lambda_node = cfg.get("train", {}).get("lambda_node", 0.0)
+    tau_node = cfg["inference"].get("tau_node") if (has_node_head and lambda_node > 0) else None
 
     # Load model
     model = build_model(cfg)
@@ -465,7 +597,10 @@ def main():
         "calohits.crystalPos_.fCoordinates.fX",
         "calohits.crystalPos_.fCoordinates.fY",
         "calohitsmc.simParticleIds", "calohitsmc.eDeps",
+        "calomcsim.id", "calomcsim.ancestorSimIds",
     ]
+
+    crystal_disk_map = {cid: disk for cid, (disk, _, _) in crystal_map.items()}
 
     if args.find_failures:
         # Scan events to find interesting failure cases
@@ -478,10 +613,18 @@ def main():
         arrays = tree.arrays(branches, entry_stop=args.n_scan)
 
         for ev in range(len(arrays)):
+            # Build calo-entrant root map for this event
+            crm = build_calo_root_map(
+                arrays["calomcsim.id"][ev],
+                arrays["calomcsim.ancestorSimIds"][ev],
+                arrays["calohitsmc.simParticleIds"][ev],
+                arrays["calohits.crystalId_"][ev],
+                crystal_disk_map)
             for disk_id in [0, 1]:
                 result = process_event_disk(
                     arrays, ev, disk_id, crystal_map, graph_cfg,
-                    model, stats, device, tau_edge, tau_node=tau_node)
+                    model, stats, device, tau_edge, tau_node=tau_node,
+                    calo_root_map=crm)
                 if result is None:
                     continue
                 merged, split = detect_failures(
@@ -505,7 +648,75 @@ def main():
                 result["disk_id"], result["truth_labels"],
                 result["bfs_labels"], result["gnn_labels"],
                 result["edge_index"], result["edge_probs"],
-                crystal_map, out_path, event_label=label)
+                crystal_map, out_path, event_label=label,
+                zoomed=True)
+            print(f"  [{idx+1}/{n_plot}] {label} -> {out_path.name}")
+
+    elif args.find_successes:
+        # Scan events to find GNN success cases (no failures, many clusters)
+        print(f"Scanning {args.n_scan} events for success cases...")
+        success_events = []
+
+        fname = Path(file_list[0]).name
+        local_path = str(Path(args.root_dir) / fname)
+        tree = uproot.open(local_path + ":EventNtuple/ntuple")
+        arrays = tree.arrays(branches, entry_stop=args.n_scan)
+
+        for ev in range(len(arrays)):
+            crm = build_calo_root_map(
+                arrays["calomcsim.id"][ev],
+                arrays["calomcsim.ancestorSimIds"][ev],
+                arrays["calohitsmc.simParticleIds"][ev],
+                arrays["calohits.crystalId_"][ev],
+                crystal_disk_map)
+            for disk_id in [0, 1]:
+                result = process_event_disk(
+                    arrays, ev, disk_id, crystal_map, graph_cfg,
+                    model, stats, device, tau_edge, tau_node=tau_node,
+                    calo_root_map=crm)
+                if result is None:
+                    continue
+                gnn_merged, gnn_split = detect_failures(
+                    result["gnn_labels"], result["truth_labels"],
+                    result["energies"])
+                bfs_merged, bfs_split = detect_failures(
+                    result["bfs_labels"], result["truth_labels"],
+                    result["energies"])
+                n_gnn_fail = len(gnn_merged) + len(gnn_split)
+                n_bfs_fail = len(bfs_merged) + len(bfs_split)
+                # GNN succeeds where BFS fails
+                if n_gnn_fail == 0 and n_bfs_fail > 0:
+                    # Store BFS failure hit indices for zooming
+                    bfs_focus = _get_failure_focus(
+                        result["bfs_labels"], result["truth_labels"],
+                        set(bfs_merged), set(bfs_split))
+                    success_events.append(
+                        (ev, disk_id, n_bfs_fail, result, bfs_focus))
+
+        # Sort by most BFS failures (biggest GNN advantage)
+        success_events.sort(key=lambda x: -x[2])
+        print(f"Found {len(success_events)} event-disks where "
+              f"GNN perfect but BFS has failures")
+
+        if args.output_dir is None:
+            args.output_dir = f"outputs/success_{model_name.lower()}"
+            out_dir = Path(args.output_dir)
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+        n_plot = min(args.n_events, len(success_events))
+        for idx in range(n_plot):
+            ev, disk_id, n_bfs_fail, result, bfs_focus = success_events[idx]
+            label = (f"Event {ev}, Disk {disk_id} — "
+                     f"GNN: 0 failures, BFS: {n_bfs_fail} failure(s) "
+                     f"[file: {Path(file_list[0]).name}]")
+            out_path = out_dir / f"success_{idx:03d}_evt{ev}_disk{disk_id}.png"
+            plot_event_3panel(
+                result["hit_x"], result["hit_y"], result["energies"],
+                result["disk_id"], result["truth_labels"],
+                result["bfs_labels"], result["gnn_labels"],
+                result["edge_index"], result["edge_probs"],
+                crystal_map, out_path, event_label=label,
+                zoomed=True, focus_override=bfs_focus)
             print(f"  [{idx+1}/{n_plot}] {label} -> {out_path.name}")
 
     else:
@@ -530,12 +741,20 @@ def main():
                 break
             if ev >= len(arrays):
                 continue
+            # Build calo-entrant root map for this event
+            crm = build_calo_root_map(
+                arrays["calomcsim.id"][ev],
+                arrays["calomcsim.ancestorSimIds"][ev],
+                arrays["calohitsmc.simParticleIds"][ev],
+                arrays["calohits.crystalId_"][ev],
+                crystal_disk_map)
             for disk_id in [0, 1]:
                 if plotted >= target:
                     break
                 result = process_event_disk(
                     arrays, ev, disk_id, crystal_map, graph_cfg,
-                    model, stats, device, tau_edge, tau_node=tau_node)
+                    model, stats, device, tau_edge, tau_node=tau_node,
+                    calo_root_map=crm)
                 if result is None:
                     continue
 
