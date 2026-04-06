@@ -47,7 +47,7 @@ train:
 
 inference:
   tau_node: 0.5
-  tau_edge: 0.30
+  tau_edge: 0.20
   min_hits: 2
   min_energy_mev: 10.0
 
