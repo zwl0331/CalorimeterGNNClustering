@@ -28,6 +28,8 @@ outputs/debug_newtruth*/
 outputs/new_truth_eval/
 outputs/failure_audit/
 outputs/success*/
+outputs/run1b_eval/
+outputs/analysis_for_sophie/
 checkpoints/*
 !checkpoints/.gitkeep
 
