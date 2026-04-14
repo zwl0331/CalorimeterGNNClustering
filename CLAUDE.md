@@ -65,9 +65,13 @@ muse build -j64   # use many cores on build nodes
 
 **EventNtuple working directory:** `/exp/mu2e/app/users/wzhou2/working_dir/` — contains local checkouts of `EventNtuple/`, `Offline/`, and `Production/`. Build with `muse` on a dedicated build node (Offline rebuild is slow). Modified EventNtuple adds `calomcsim.ancestorSimIds` branch for SimParticle ancestry.
 
-**MCS art files (input to EventNtuple):** `/pnfs/mu2e/persistent/datasets/phy-sim/mcs/mu2e/FlateMinusMix1BBTriggered/MDC2025af_best_v1_1/art/` (50 files, run 001430). These are the reco+MC art files that Sophie used to produce the MDC2025-002 NTS ROOT files.
+**MCS art files (input to EventNtuple):**
+- **MDC2025 (with field):** `/pnfs/mu2e/persistent/datasets/phy-sim/mcs/mu2e/FlateMinusMix1BBTriggered/MDC2025af_best_v1_1/art/` (50 files, run 001430). Reco+MC art files used by Sophie for MDC2025-002 NTS ROOT files.
+- **Run1B (no field):** `/pnfs/mu2e/tape/phy-sim/mcs/mu2e/FlateMinus-KL/Run1Bah_best_v1_4-001/art/` (20 files, run 001450, 24 GB). No magnetic field scenario — electrons travel straight. Corresponding NTS files (without ancestry) at `/pnfs/mu2e/tape/phy-nts/nts/mu2e/FlateMinus-KL/Run1B-005/root/` (20 files, ~40K events each).
 
-**Reprocessed ROOT files (v2, with ancestry):** `/exp/mu2e/data/users/wzhou2/GNN/root_files_v2/` — produced from MCS art files using `from_mcs-calo-only.fcl` with modified EventNtuple. Contains `calomcsim.ancestorSimIds` branch with full Geant4 parent chains. Batch script: `root_files_v2/run_all.sh`.
+**Reprocessed ROOT files (v2, with ancestry):**
+- **MDC2025:** `root_files_v2/` — **deleted 2026-04-13** to free quota (97 GB). Reproducible from MCS art files via FermiGrid using `from_mcs-calo-only.fcl` + modified EventNtuple. Grid submission script: `root_files_v2/grid_submit.sh`. Original cluster `90854576`.
+- **Run1B:** `root_files_run1b/` — reprocessing via FermiGrid (pending). Grid submission script: `root_files_run1b/grid_submit.sh`, workflow project `eventntuple_run1b`.
 
 **Batch reprocessing notes:**
 - `run_all.sh` uses `MAX_PARALLEL=10`. Originally 20, but login node killed all processes after ~10 min (resource limits). 10 parallel is safe.
@@ -121,6 +125,9 @@ OMP_NUM_THREADS=4 python3 scripts/validate_ancestry.py --max-events 500
 
 # Evaluate models against old vs new (calo-entrant) truth definitions
 OMP_NUM_THREADS=4 python3 scripts/evaluate_new_truth.py --split val --max-events 500
+
+# Run1B (no-field) evaluation: BFS + both GNNs
+OMP_NUM_THREADS=4 PYTHONUNBUFFERED=1 python3 -u scripts/evaluate_run1b.py --n-events 500
 ```
 
 ---
@@ -166,16 +173,18 @@ ROOT files v2 (EventNtuple/ntuple TTree, with ancestorSimIds)
 
 | What | Path |
 |------|------|
-| ROOT files v2 (ancestry) | `/exp/mu2e/data/users/wzhou2/GNN/root_files_v2/` (50 files, 97 GB, with `ancestorSimIds`) |
-| Packed graphs | `data/processed/{train,val,test}.pt` (119 + 23 + 27 MB, calo-entrant truth) |
+| MDC2025 v2 ROOT files | `root_files_v2/` — **deleted 2026-04-13** (97 GB freed). Reproducible via FermiGrid (cluster `90854576`). |
+| Run1B v2 ROOT files | `root_files_run1b/` — pending FermiGrid reprocessing (20 files, no-field scenario) |
+| Run1B MCS art files | `/pnfs/mu2e/tape/phy-sim/mcs/mu2e/FlateMinus-KL/Run1Bah_best_v1_4-001/art/` (20 files, 24 GB) |
+| Run1B NTS files (no ancestry) | `/pnfs/mu2e/tape/phy-nts/nts/mu2e/FlateMinus-KL/Run1B-005/root/` (20 files, ~40K events each) |
+| Packed graphs (MDC2025) | `data/processed/{train,val,test}.pt` (119 + 23 + 27 MB, calo-entrant truth) |
 | Node/edge norm stats | `data/normalization_stats.pt` |
 | Crystal geometry | `data/crystal_geometry.csv`, `data/crystal_neighbors.csv` |
 | Splits (frozen) | `splits/{train,val,test}_files.txt` (35/7/8 v2 files) |
 | EventNtuple build | `/exp/mu2e/app/users/wzhou2/working_dir/` (EventNtuple + Offline + Production) |
+| Muse tarball | `/exp/mu2e/data/users/wzhou2/museTarball/tmp.iTQSPdWZBd/Code.tar.bz2` (rebuilt 2026-04-13, `al9-prof-e29-p092`, with `ancestorSimIds` + latest Offline) |
 | v1 results archive | `~/gnn_v1_results.tar.gz` (35 MB — old outputs, plots, training runs) |
 | v1 ROOT files | **Deleted** (were at `root_files/`, 97 GB — originals on tape at `/pnfs/mu2e/tape/phy-nts/...`) |
-
-ROOT files are v2 reprocessed MDC2025-002 format (`EventNtuple/ntuple` TTree) with `calomcsim.ancestorSimIds` branch. Produced via FermiGrid (50 jobs, cluster `90854576`).
 
 ---
 
@@ -254,6 +263,32 @@ v1 outputs archived in `~/gnn_v1_results.tar.gz` (2026-04-05).
 **v2 vs v1 improvement:** Truth match +6.2% (88→94%), purity +0.015, merges halved (2,940→1,454). Both GNNs beat BFS on reco match rate, completeness, splits, and merges.
 
 **Checkpoints:** `outputs/runs/simple_edge_net_v2/`, `outputs/runs/calo_cluster_net_v1_v2_stage1/`.
+
+### Run1B campaign (no magnetic field, calo-entrant truth)
+
+**Goal:** Test generalization of MDC2025-trained models on the no-field scenario (electrons travel straight).
+
+**Data:** 20 Run1B v2 ROOT files (reprocessed via FermiGrid, cluster `27583402`), 405 MB total, ~40K events/file. `FlateMinus-KL` dataset — no pileup, no B-field.
+
+**Evaluation (10,000 events, 8,641 disk-graphs, calo-entrant truth):**
+
+| Metric | BFS | SimpleEdgeNet (τ=0.26) | CaloClusterNetV1 (τ=0.20) |
+|--------|-----|------------------------|---------------------------|
+| Reco match rate | 99.6% | **99.7%** | **99.7%** |
+| Truth match rate | **99.9%** | **99.9%** | **99.9%** |
+| Mean purity | 0.9997 | 0.9997 | 0.9997 |
+| Mean completeness | 0.9991 | **0.9993** | **0.9993** |
+| Splits | 38 | 29 | **28** |
+| Merges | 5 | 5 | 5 |
+
+**Key findings:**
+- Near-perfect performance from all methods — no-field, no-pileup scenario is trivially easy.
+- Only 12 singletons (0.1%) vs 48% in MDC2025 — confirms singletons are pileup-driven.
+- Only 5 merges vs 1,454 in MDC2025. ~1 truth cluster per disk vs ~5 in MDC2025.
+- GNNs generalize perfectly to no-field data despite being trained on with-field data.
+- MDC2025 with pileup remains the meaningful benchmark.
+
+**Script:** `scripts/evaluate_run1b.py`. **Results:** `outputs/run1b_eval/`.
 
 ---
 
