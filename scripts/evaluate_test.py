@@ -261,7 +261,7 @@ def main():
     inf_cfg = cfg["inference"]
     tau_edge = inf_cfg["tau_edge"]
     # tau_node only used when explicitly set in config AND model has node head
-    has_node_head = model_name == "CaloClusterNetV1"
+    has_node_head = model_name == "CaloClusterNet"
     tau_node_cfg = inf_cfg.get("tau_node")
     # Only apply tau_node if the training config had lambda_node > 0
     lambda_node = cfg.get("train", {}).get("lambda_node", 0.0)
@@ -407,7 +407,7 @@ def main():
                 with torch.no_grad():
                     output = model(data.to(device))
 
-                # Handle both dict (CaloClusterNetV1) and tensor (SimpleEdgeNet)
+                # Handle both dict (CaloClusterNet) and tensor (SimpleEdgeNet)
                 if isinstance(output, dict):
                     logits_np = output["edge_logits"].cpu().numpy()
                     nl = output.get("node_logits")

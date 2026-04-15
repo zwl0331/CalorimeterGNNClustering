@@ -214,7 +214,7 @@ def load_model_and_config(config_path, checkpoint_path, device):
     inf_cfg = cfg["inference"]
     tau_edge = inf_cfg["tau_edge"]
     model_name = cfg["model"].get("name", "SimpleEdgeNet")
-    has_node_head = model_name == "CaloClusterNetV1"
+    has_node_head = model_name == "CaloClusterNet"
     lambda_node = cfg.get("train", {}).get("lambda_node", 0.0)
     tau_node_cfg = inf_cfg.get("tau_node")
     tau_node = tau_node_cfg if (has_node_head and lambda_node > 0) else None
@@ -241,16 +241,16 @@ def main():
     # Load models
     models = {}
     se_ckpt = "outputs/runs/simple_edge_net_v1/checkpoints/best_model.pt"
-    ccn_ckpt = "outputs/runs/calo_cluster_net_v1_stage1/checkpoints/best_model.pt"
+    ccn_ckpt = "outputs/runs/calo_cluster_net_v2_stage1/checkpoints/best_model.pt"
     if Path(se_ckpt).exists():
         m, c, te, tn = load_model_and_config("configs/default.yaml", se_ckpt, device)
         models["SimpleEdgeNet"] = (m, c, te, tn)
         print(f"SimpleEdgeNet: tau_edge={te}")
     if Path(ccn_ckpt).exists():
         m, c, te, tn = load_model_and_config(
-            "configs/calo_cluster_net_v1.yaml", ccn_ckpt, device)
-        models["CaloClusterNetV1"] = (m, c, te, tn)
-        print(f"CaloClusterNetV1: tau_edge={te}")
+            "configs/calo_cluster_net.yaml", ccn_ckpt, device)
+        models["CaloClusterNet"] = (m, c, te, tn)
+        print(f"CaloClusterNet: tau_edge={te}")
 
     # Load normalization stats (use SimpleEdgeNet config as reference)
     ref_cfg = list(models.values())[0][1] if models else None
@@ -292,7 +292,7 @@ def main():
     ]
 
     # Results: {method: {truth_type: [per-graph results]}}
-    # methods: "BFS", "SimpleEdgeNet", "CaloClusterNetV1"
+    # methods: "BFS", "SimpleEdgeNet", "CaloClusterNet"
     # truth types: "old", "new"
     results = defaultdict(lambda: defaultdict(list))
     n_graphs = 0

@@ -1,4 +1,4 @@
-"""Unit tests for CaloClusterNetV1 and its components."""
+"""Unit tests for CaloClusterNet and its components."""
 
 import sys
 import unittest
@@ -11,7 +11,7 @@ from torch_geometric.data import Data
 
 from src.models.layers import EdgeAwareResBlock
 from src.models.heads import NodeSaliencyHead, EdgeClusteringHead
-from src.models.calo_cluster_net import CaloClusterNetV1
+from src.models.calo_cluster_net import CaloClusterNet
 
 
 def _make_graph(n_nodes=10, n_edges=20, node_dim=6, edge_dim=8):
@@ -91,10 +91,10 @@ class TestEdgeClusteringHead(unittest.TestCase):
         self.assertEqual(out.shape, (20,))
 
 
-class TestCaloClusterNetV1(unittest.TestCase):
+class TestCaloClusterNet(unittest.TestCase):
 
     def test_forward_returns_dict(self):
-        model = CaloClusterNetV1(hidden_dim=32, n_mp_layers=2, dropout=0.0)
+        model = CaloClusterNet(hidden_dim=32, n_mp_layers=2, dropout=0.0)
         data = _make_graph()
         out = model(data)
         self.assertIsInstance(out, dict)
@@ -102,7 +102,7 @@ class TestCaloClusterNetV1(unittest.TestCase):
         self.assertIn("node_logits", out)
 
     def test_output_shapes(self):
-        model = CaloClusterNetV1(hidden_dim=32, n_mp_layers=2, dropout=0.0)
+        model = CaloClusterNet(hidden_dim=32, n_mp_layers=2, dropout=0.0)
         data = _make_graph(n_nodes=15, n_edges=30)
         out = model(data)
         self.assertEqual(out["edge_logits"].shape, (30,))
@@ -110,7 +110,7 @@ class TestCaloClusterNetV1(unittest.TestCase):
 
     def test_default_config(self):
         """Default config: hidden=96, 4 MP layers."""
-        model = CaloClusterNetV1()
+        model = CaloClusterNet()
         data = _make_graph()
         out = model(data)
         self.assertEqual(out["edge_logits"].shape, (20,))
@@ -119,13 +119,13 @@ class TestCaloClusterNetV1(unittest.TestCase):
     def test_param_count_larger_than_simple(self):
         from src.models.simple_edge_net import SimpleEdgeNet
         simple = SimpleEdgeNet(hidden_dim=64, n_mp_layers=3)
-        v1 = CaloClusterNetV1(hidden_dim=96, n_mp_layers=4)
+        v1 = CaloClusterNet(hidden_dim=96, n_mp_layers=4)
         n_simple = sum(p.numel() for p in simple.parameters())
         n_v1 = sum(p.numel() for p in v1.parameters())
         self.assertGreater(n_v1, n_simple)
 
     def test_gradients_flow_through_all_heads(self):
-        model = CaloClusterNetV1(hidden_dim=16, n_mp_layers=2, dropout=0.0)
+        model = CaloClusterNet(hidden_dim=16, n_mp_layers=2, dropout=0.0)
         data = _make_graph()
         out = model(data)
         loss = out["edge_logits"].sum() + out["node_logits"].sum()
@@ -136,7 +136,7 @@ class TestCaloClusterNetV1(unittest.TestCase):
 
     def test_single_node_graph(self):
         """Model should handle a graph with 1 node and 0 edges."""
-        model = CaloClusterNetV1(hidden_dim=16, n_mp_layers=2, dropout=0.0)
+        model = CaloClusterNet(hidden_dim=16, n_mp_layers=2, dropout=0.0)
         data = Data(
             x=torch.randn(1, 6),
             edge_index=torch.zeros(2, 0, dtype=torch.long),
@@ -147,7 +147,7 @@ class TestCaloClusterNetV1(unittest.TestCase):
         self.assertEqual(out["node_logits"].shape, (1,))
 
     def test_eval_mode_deterministic(self):
-        model = CaloClusterNetV1(hidden_dim=16, n_mp_layers=2, dropout=0.1)
+        model = CaloClusterNet(hidden_dim=16, n_mp_layers=2, dropout=0.1)
         model.eval()
         data = _make_graph()
         out1 = model(data)
@@ -158,7 +158,7 @@ class TestCaloClusterNetV1(unittest.TestCase):
     def test_compatible_with_reconstruct_clusters(self):
         """Edge logits can be fed directly to reconstruct_clusters."""
         from src.inference.cluster_reco import reconstruct_clusters
-        model = CaloClusterNetV1(hidden_dim=16, n_mp_layers=2, dropout=0.0)
+        model = CaloClusterNet(hidden_dim=16, n_mp_layers=2, dropout=0.0)
         model.eval()
         data = _make_graph(n_nodes=10, n_edges=20)
         with torch.no_grad():
@@ -170,9 +170,9 @@ class TestCaloClusterNetV1(unittest.TestCase):
         self.assertEqual(labels.shape, (10,))
 
     def test_compatible_with_predict_clusters(self):
-        """predict_clusters works with CaloClusterNetV1 (dict output)."""
+        """predict_clusters works with CaloClusterNet (dict output)."""
         from src.inference.cluster_reco import predict_clusters
-        model = CaloClusterNetV1(hidden_dim=16, n_mp_layers=2, dropout=0.0)
+        model = CaloClusterNet(hidden_dim=16, n_mp_layers=2, dropout=0.0)
         data = _make_graph(n_nodes=10, n_edges=20)
         labels, probs = predict_clusters(
             model, data, device="cpu", tau_edge=0.5,

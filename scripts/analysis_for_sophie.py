@@ -140,8 +140,8 @@ def main():
     for name, cfg_path, ckpt_path in [
         ("SimpleEdgeNet", "configs/default.yaml",
          "outputs/runs/simple_edge_net_v2/checkpoints/best_model.pt"),
-        ("CaloClusterNetV1", "configs/calo_cluster_net_v1.yaml",
-         "outputs/runs/calo_cluster_net_v1_v2_stage1/checkpoints/best_model.pt"),
+        ("CaloClusterNet", "configs/calo_cluster_net.yaml",
+         "outputs/runs/calo_cluster_net_v2_stage1/checkpoints/best_model.pt"),
     ]:
         with open(cfg_path) as f:
             cfg = yaml.safe_load(f)
@@ -267,7 +267,7 @@ def main():
     for model_name, res in results.items():
         truth = res["truth"]
         reco = res["reco"]
-        short = "SEN" if "Simple" in model_name else "CCNv1"
+        short = "SEN" if "Simple" in model_name else "CCN"
         tau = models[model_name]["tau_edge"]
 
         fig, axes = plt.subplots(3, 3, figsize=(20, 18))

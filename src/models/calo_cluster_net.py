@@ -1,5 +1,5 @@
 """
-CaloClusterNetV1 — multi-task edge-centric GNN for calorimeter clustering.
+CaloClusterNet — multi-task edge-centric GNN for calorimeter clustering.
 
 Architecture:
   - Node encoder: MLP(6 → hidden → hidden)
@@ -22,7 +22,7 @@ from src.models.layers import EdgeAwareResBlock
 from src.models.heads import NodeSaliencyHead, EdgeClusteringHead
 
 
-class CaloClusterNetV1(nn.Module):
+class CaloClusterNet(nn.Module):
     """Multi-task edge-centric GNN for calorimeter clustering.
 
     Parameters

@@ -16,7 +16,7 @@ Two models are implemented:
 | Model | Parameters | Description |
 |-------|-----------|-------------|
 | **SimpleEdgeNet** | 215K | Lightweight baseline: MLP encoders + sum message passing + edge MLP head |
-| **CaloClusterNetV1** | 676K | Residual MP blocks with gated aggregation, global context, node saliency + edge clustering heads |
+| **CaloClusterNet** | 676K | Residual MP blocks with gated aggregation, global context, node saliency + edge clustering heads |
 
 ## Quick start
 
@@ -46,17 +46,17 @@ The full pipeline from ROOT files to evaluated clusters:
 
 Steps 3-6 require a GPU node (A100 MIG). Steps 1-2 run on CPU.
 
-### Staged training (CaloClusterNetV1)
+### Staged training (CaloClusterNet)
 
 ```bash
 # Stage 1: edge-only loss
-python3 scripts/train_gnn.py --config configs/calo_cluster_net_v1.yaml \
-    --device cuda --run-name calo_cluster_net_v1_stage1
+python3 scripts/train_gnn.py --config configs/calo_cluster_net.yaml \
+    --device cuda --run-name calo_cluster_net_stage1
 
 # Stage 2: add node saliency loss, resume from stage 1
-python3 scripts/train_gnn.py --config configs/calo_cluster_net_v1_stage2.yaml \
-    --device cuda --run-name calo_cluster_net_v1_stage2 \
-    --resume outputs/runs/calo_cluster_net_v1_stage1/checkpoints/best_model.pt
+python3 scripts/train_gnn.py --config configs/calo_cluster_net_stage2.yaml \
+    --device cuda --run-name calo_cluster_net_stage2 \
+    --resume outputs/runs/calo_cluster_net_stage1/checkpoints/best_model.pt
 ```
 
 ## Data flow
@@ -76,7 +76,7 @@ ROOT files (EventNtuple/ntuple TTree, MDC2025-002)
               |
               +-> src/models/
               |     simple_edge_net.py         SimpleEdgeNet (baseline)
-              |     calo_cluster_net.py        CaloClusterNetV1 (primary)
+              |     calo_cluster_net.py        CaloClusterNet (primary)
               |       layers.py                EdgeAwareResBlock (residual MP)
               |       heads.py                 NodeSaliencyHead + EdgeClusteringHead
               |
@@ -138,7 +138,7 @@ MC truth from `calohitsmc.simParticleIds` + `calohitsmc.eDeps` (MDC2025-002 form
 
 Test set (4,000 events, 6,996 disk-graphs):
 
-| Metric | BFS | SimpleEdgeNet (t=0.34) | CaloClusterNetV1 (t=0.30) |
+| Metric | BFS | SimpleEdgeNet (t=0.34) | CaloClusterNet (t=0.30) |
 |--------|-----|------------------------|---------------------------|
 | Reco match rate | 94.8% | **95.3%** | 95.2% |
 | Truth match rate | **88.1%** | 87.7% | **88.1%** |
@@ -162,7 +162,7 @@ src/
   data/                   dataset, graph building, truth labels, normalization
   geometry/               crystal geometry loader
   inference/              cluster reconstruction and postprocessing
-  models/                 SimpleEdgeNet, CaloClusterNetV1, layers, heads
+  models/                 SimpleEdgeNet, CaloClusterNet, layers, heads
   training/               trainer, losses, metrics
 tests/                    unit tests (unittest, not pytest)
 outputs/                  run logs, checkpoints, plots (gitignored)

@@ -1,10 +1,12 @@
-# CaloClusterNetV1 Stage 2: edge + node saliency loss
-# Resume from Stage 1 best checkpoint.
+# CaloClusterNet training configuration
+# Stage 1: edge-only loss (lambda_node=0, lambda_cons=0)
+# To advance stages, update lambda_node/lambda_cons and resume from checkpoint.
 #
 # Usage (GPU node):
-#   python3 scripts/train_gnn.py --config configs/calo_cluster_net_v1_stage2.yaml \
-#     --device cuda --run-name calo_cluster_net_v1_stage2 \
-#     --resume outputs/runs/calo_cluster_net_v1_stage1/checkpoints/best_model.pt
+#   python3 scripts/train_gnn.py --config configs/calo_cluster_net.yaml --device cuda
+#
+# Stage 2: set lambda_node: 0.3, optionally lower lr, resume from Stage 1 best checkpoint
+# Stage 3: set lambda_cons: 0.05, resume from Stage 2 best checkpoint
 
 data:
   crystal_geometry: data/crystal_geometry.csv
@@ -24,28 +26,28 @@ graph:
   use_topology_graph: false
 
 model:
-  name: CaloClusterNetV1
+  name: CaloClusterNet
   hidden_dim: 96
   n_mp_layers: 4
   dropout: 0.1
 
 train:
   optimizer: adamw
-  lr: 5.0e-4
+  lr: 1.0e-3
   weight_decay: 1.0e-4
   scheduler: plateau
   epochs: 100
   early_stop_patience: 15
   batch_size: 32
   neg_pos_ratio: 5
-  # Stage 2: edge + node saliency
+  # Stage 1: edge only
   lambda_edge: 1.0
-  lambda_node: 0.3
+  lambda_node: 0.0
   lambda_cons: 0.0
 
 inference:
   tau_node: 0.5
-  tau_edge: 0.34
+  tau_edge: 0.20
   min_hits: 2
   min_energy_mev: 10.0
 

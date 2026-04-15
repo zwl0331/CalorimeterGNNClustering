@@ -88,7 +88,7 @@ class Trainer:
         self.epochs_without_improvement = 0
 
     def _extract_edge_logits(self, output):
-        """Extract edge logits from model output (Tensor for SimpleEdgeNet, dict for CaloClusterNetV1)."""
+        """Extract edge logits from model output (Tensor for SimpleEdgeNet, dict for CaloClusterNet)."""
         if isinstance(output, dict):
             return output["edge_logits"]
         return output

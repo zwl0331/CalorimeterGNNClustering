@@ -15,10 +15,10 @@ Usage:
     # Auto-find failure cases under new truth
     OMP_NUM_THREADS=4 python3 scripts/plot_new_truth_clusters.py --find-failures --n-scan 200
 
-    # Use CaloClusterNetV1
+    # Use CaloClusterNet
     OMP_NUM_THREADS=4 python3 scripts/plot_new_truth_clusters.py \
-        --config configs/calo_cluster_net_v1.yaml \
-        --checkpoint outputs/runs/calo_cluster_net_v1_stage1/checkpoints/best_model.pt
+        --config configs/calo_cluster_net.yaml \
+        --checkpoint outputs/runs/calo_cluster_net_v2_stage1/checkpoints/best_model.pt
 """
 
 import argparse
@@ -514,7 +514,7 @@ def main():
     tau_edge = cfg["inference"]["tau_edge"]
     graph_cfg = cfg["graph"]
     model_name = cfg["model"].get("name", "SimpleEdgeNet")
-    has_node_head = model_name == "CaloClusterNetV1"
+    has_node_head = model_name == "CaloClusterNet"
     lambda_node = cfg.get("train", {}).get("lambda_node", 0.0)
     tau_node = cfg["inference"].get("tau_node") if (has_node_head and lambda_node > 0) else None
 

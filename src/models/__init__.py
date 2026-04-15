@@ -3,14 +3,14 @@
 Models
 ------
 SimpleEdgeNet       Lightweight baseline (215K params): MLP encoders, sum MP, edge MLP head.
-CaloClusterNetV1    Multi-task model (676K params): residual MP, gated aggregation,
+CaloClusterNet    Multi-task model (676K params): residual MP, gated aggregation,
                     node saliency + edge clustering heads.
 
 The ``build_model(cfg)`` factory instantiates the model specified in a YAML config.
 """
 
 from src.models.simple_edge_net import SimpleEdgeNet
-from src.models.calo_cluster_net import CaloClusterNetV1
+from src.models.calo_cluster_net import CaloClusterNet
 
 
 def build_model(cfg):
@@ -32,8 +32,8 @@ def build_model(cfg):
             n_mp_layers=model_cfg.get("n_mp_layers", 3),
             dropout=model_cfg.get("dropout", 0.1),
         )
-    elif name == "CaloClusterNetV1":
-        return CaloClusterNetV1(
+    elif name == "CaloClusterNet":
+        return CaloClusterNet(
             node_dim=6, edge_dim=8,
             hidden_dim=model_cfg.get("hidden_dim", 96),
             n_mp_layers=model_cfg.get("n_mp_layers", 4),

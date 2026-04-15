@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Graph Neural Network-based clustering algorithm for the Mu2e electromagnetic calorimeter.
 Replaces the existing BFS seed-based algorithm (`CaloClusterMaker` in Offline).
-Approach: **edge classification** (SimpleEdgeNet, CaloClusterNetV1).
+Approach: **edge classification** (SimpleEdgeNet, CaloClusterNet).
 Built with PyTorch Geometric.
 
 Working directory: `/exp/mu2e/app/users/wzhou2/projects/calorimeter/GNN/`
@@ -101,13 +101,13 @@ python3 scripts/pack_graphs.py
 # Train SimpleEdgeNet (GPU node)
 python3 scripts/train_gnn.py --config configs/default.yaml --device cuda --epochs 100 --batch-size 64
 
-# Train CaloClusterNetV1 (GPU node) — staged training with --resume
-python3 scripts/train_gnn.py --config configs/calo_cluster_net_v1.yaml --device cuda --run-name calo_cluster_net_v1_stage1
-python3 scripts/train_gnn.py --config configs/calo_cluster_net_v1_stage2.yaml --device cuda --run-name calo_cluster_net_v1_stage2 --resume outputs/runs/calo_cluster_net_v1_stage1/checkpoints/best_model.pt
+# Train CaloClusterNet (GPU node) — staged training with --resume
+python3 scripts/train_gnn.py --config configs/calo_cluster_net.yaml --device cuda --run-name calo_cluster_net_stage1
+python3 scripts/train_gnn.py --config configs/calo_cluster_net_stage2.yaml --device cuda --run-name calo_cluster_net_stage2 --resume outputs/runs/calo_cluster_net_stage1/checkpoints/best_model.pt
 
 # Threshold tuning on val set (model-agnostic)
 python3 scripts/tune_threshold.py
-python3 scripts/tune_threshold.py --config configs/calo_cluster_net_v1.yaml --checkpoint outputs/runs/calo_cluster_net_v1_v2_stage1/checkpoints/best_model.pt
+python3 scripts/tune_threshold.py --config configs/calo_cluster_net.yaml --checkpoint outputs/runs/calo_cluster_net_v2_stage1/checkpoints/best_model.pt
 
 # Test set evaluation (run ONCE)
 OMP_NUM_THREADS=4 PYTHONUNBUFFERED=1 python3 -u scripts/evaluate_test.py --n-events 500
@@ -148,7 +148,7 @@ ROOT files v2 (EventNtuple/ntuple TTree, with ancestorSimIds)
               +-> src/data/normalization.py   z-score stats (node/edge features)
               |
               +-> src/models/simple_edge_net.py      SimpleEdgeNet (215K params)
-              +-> src/models/calo_cluster_net.py     CaloClusterNetV1 (676K params)
+              +-> src/models/calo_cluster_net.py     CaloClusterNet (676K params)
               |     +-> src/models/layers.py         EdgeAwareResBlock (residual MP + gated agg)
               |     +-> src/models/heads.py          NodeSaliencyHead + EdgeClusteringHead
               +-> src/training/trainer.py            train loop, multi-task loss, early stopping
@@ -214,7 +214,7 @@ ROOT files v2 (EventNtuple/ntuple TTree, with ancestorSimIds)
 
 **Test set (4,000 events, 6,996 disk-graphs, old truth):**
 
-| Metric | BFS | SimpleEdgeNet (t=0.34) | CaloClusterNetV1 (t=0.30) |
+| Metric | BFS | SimpleEdgeNet (t=0.34) | CaloClusterNet (t=0.30) |
 |--------|-----|------------------------|---------------------------|
 | Reco match rate | 94.8% | **95.3%** | 95.2% |
 | Truth match rate | **88.1%** | 87.7% | **88.1%** |
@@ -229,8 +229,8 @@ ROOT files v2 (EventNtuple/ntuple TTree, with ancestorSimIds)
 |--------|-------|----------|--------|--------|
 | BFS | old | 88.4% | 0.9731 | 1,028 |
 | BFS | **new** | **94.7%** | **0.9879** | **527** |
-| CaloClusterNetV1 | old | 88.5% | 0.9734 | 977 |
-| CaloClusterNetV1 | **new** | **94.7%** | **0.9882** | **480** |
+| CaloClusterNet | old | 88.5% | 0.9734 | 977 |
+| CaloClusterNet | **new** | **94.7%** | **0.9882** | **480** |
 
 **Key finding:** ~50% of old merge errors were artificial (same shower, different SimParticle IDs). Switching to calo-entrant truth halved merges and boosted truth match rate by +6.2% without retraining. This motivated the full v2 rebuild.
 
@@ -245,13 +245,13 @@ v1 outputs archived in `~/gnn_v1_results.tar.gz` (2026-04-05).
 | Model | Best Val F1 | Best Epoch | Epochs |
 |-------|-----------|------------|--------|
 | SimpleEdgeNet | 0.966 | 9 | 24 (early stop) |
-| CaloClusterNetV1 (Stage 1) | 0.961 | 13 | 28 (early stop) |
+| CaloClusterNet (Stage 1) | 0.961 | 13 | 28 (early stop) |
 
-**Threshold tuning (val set):** SimpleEdgeNet τ_edge=0.26 (F1=0.9734), CaloClusterNetV1 τ_edge=0.20 (F1=0.9748). Frozen in configs.
+**Threshold tuning (val set):** SimpleEdgeNet τ_edge=0.26 (F1=0.9734), CaloClusterNet τ_edge=0.20 (F1=0.9748). Frozen in configs.
 
 **Test set (4,000 events, 6,996 disk-graphs, calo-entrant truth):**
 
-| Metric | BFS | SimpleEdgeNet (τ=0.26) | CaloClusterNetV1 (τ=0.20) |
+| Metric | BFS | SimpleEdgeNet (τ=0.26) | CaloClusterNet (τ=0.20) |
 |--------|-----|------------------------|---------------------------|
 | Reco match rate | 96.5% | **97.1%** | **97.1%** |
 | Truth match rate | **94.3%** | 94.0% | 94.2% |
@@ -262,7 +262,7 @@ v1 outputs archived in `~/gnn_v1_results.tar.gz` (2026-04-05).
 
 **v2 vs v1 improvement:** Truth match +6.2% (88→94%), purity +0.015, merges halved (2,940→1,454). Both GNNs beat BFS on reco match rate, completeness, splits, and merges.
 
-**Checkpoints:** `outputs/runs/simple_edge_net_v2/`, `outputs/runs/calo_cluster_net_v1_v2_stage1/`.
+**Checkpoints:** `outputs/runs/simple_edge_net_v2/`, `outputs/runs/calo_cluster_net_v2_stage1/`.
 
 ### Run1B campaign (no magnetic field, calo-entrant truth)
 
@@ -272,7 +272,7 @@ v1 outputs archived in `~/gnn_v1_results.tar.gz` (2026-04-05).
 
 **Evaluation (10,000 events, 8,641 disk-graphs, calo-entrant truth):**
 
-| Metric | BFS | SimpleEdgeNet (τ=0.26) | CaloClusterNetV1 (τ=0.20) |
+| Metric | BFS | SimpleEdgeNet (τ=0.26) | CaloClusterNet (τ=0.20) |
 |--------|-----|------------------------|---------------------------|
 | Reco match rate | 99.6% | **99.7%** | **99.7%** |
 | Truth match rate | **99.9%** | **99.9%** | **99.9%** |
@@ -294,7 +294,7 @@ v1 outputs archived in `~/gnn_v1_results.tar.gz` (2026-04-05).
 
 ## Failure audit findings (v2 campaign)
 
-**v2 audit (CaloClusterNetV1, τ=0.20, val set, 5,793 graphs):**
+**v2 audit (CaloClusterNet, τ=0.20, val set, 5,793 graphs):**
 - Total merges: 1,512 (down from 2,289 in v1)
 - 75% of merges caused by ≤2 bridge edges; median bridge score 0.59 (threshold 0.20)
 - 93.8% of merges involve at least one singleton truth cluster

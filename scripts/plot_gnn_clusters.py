@@ -494,7 +494,7 @@ def process_event_disk(arrays, ev, disk_id, crystal_map, graph_cfg,
     with torch.no_grad():
         output = model(data.to(device))
 
-    # Handle both dict (CaloClusterNetV1) and tensor (SimpleEdgeNet)
+    # Handle both dict (CaloClusterNet) and tensor (SimpleEdgeNet)
     if isinstance(output, dict):
         logits_np = output["edge_logits"].cpu().numpy()
         nl = output.get("node_logits")
@@ -563,7 +563,7 @@ def main():
     tau_edge = args.tau_edge or cfg["inference"]["tau_edge"]
     graph_cfg = cfg["graph"]
     model_name = cfg["model"].get("name", "SimpleEdgeNet")
-    has_node_head = model_name == "CaloClusterNetV1"
+    has_node_head = model_name == "CaloClusterNet"
     # Only apply tau_node if the node head was actually trained (lambda_node > 0)
     lambda_node = cfg.get("train", {}).get("lambda_node", 0.0)
     tau_node = cfg["inference"].get("tau_node") if (has_node_head and lambda_node > 0) else None

@@ -1,5 +1,5 @@
 """
-EdgeAwareResBlock — residual message-passing block for CaloClusterNetV1.
+EdgeAwareResBlock — residual message-passing block for CaloClusterNet.
 
 Each block performs four steps:
   A. Edge update (residual):  m_ij = MLP([h_i, h_j, e_ij]); e_ij ← LN(e_ij + m_ij)

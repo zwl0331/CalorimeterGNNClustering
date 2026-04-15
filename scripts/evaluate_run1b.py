@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Run1B (no-field) evaluation: BFS + SimpleEdgeNet + CaloClusterNetV1 vs calo-entrant truth.
+Run1B (no-field) evaluation: BFS + SimpleEdgeNet + CaloClusterNet vs calo-entrant truth.
 
 Evaluates models trained on MDC2025 (with-field) data on the Run1B (no-field)
 dataset. Tests generalization to a different physics scenario where electrons
@@ -206,7 +206,7 @@ def load_model(config_path, checkpoint_path, device):
     inf_cfg = cfg["inference"]
     tau_edge = inf_cfg["tau_edge"]
     model_name = cfg["model"].get("name", "SimpleEdgeNet")
-    has_node_head = model_name == "CaloClusterNetV1"
+    has_node_head = model_name == "CaloClusterNet"
     tau_node_cfg = inf_cfg.get("tau_node")
     lambda_node = cfg.get("train", {}).get("lambda_node", 0.0)
     tau_node = tau_node_cfg if (has_node_head and lambda_node > 0) else None
@@ -263,9 +263,9 @@ def main():
         ("SimpleEdgeNet",
          "configs/default.yaml",
          "outputs/runs/simple_edge_net_v2/checkpoints/best_model.pt"),
-        ("CaloClusterNetV1",
-         "configs/calo_cluster_net_v1.yaml",
-         "outputs/runs/calo_cluster_net_v1_v2_stage1/checkpoints/best_model.pt"),
+        ("CaloClusterNet",
+         "configs/calo_cluster_net.yaml",
+         "outputs/runs/calo_cluster_net_v2_stage1/checkpoints/best_model.pt"),
     ]:
         model, cfg, mname, tau_edge, tau_node = load_model(
             cfg_path, ckpt_path, device)
@@ -300,8 +300,8 @@ def main():
     ]
 
     # Results per method
-    all_results = {name: [] for name in ["BFS", "SimpleEdgeNet", "CaloClusterNetV1"]}
-    all_detail = {name: [] for name in ["BFS", "SimpleEdgeNet", "CaloClusterNetV1"]}
+    all_results = {name: [] for name in ["BFS", "SimpleEdgeNet", "CaloClusterNet"]}
+    all_detail = {name: [] for name in ["BFS", "SimpleEdgeNet", "CaloClusterNet"]}
     n_disk_graphs = 0
     n_events_total = 0
     t0 = time.time()
@@ -378,7 +378,7 @@ def main():
 
                 if edge_index.shape[1] == 0:
                     gnn_labels = np.arange(n_disk)
-                    for gnn_name in ["SimpleEdgeNet", "CaloClusterNetV1"]:
+                    for gnn_name in ["SimpleEdgeNet", "CaloClusterNet"]:
                         gnn_match, gnn_td = match_clusters_detail(
                             gnn_labels, mc_truth, d_e)
                         all_results[gnn_name].append(gnn_match)
@@ -397,7 +397,7 @@ def main():
                 normalize_graph(data, stats)
 
                 # Run both GNNs
-                for gnn_name in ["SimpleEdgeNet", "CaloClusterNetV1"]:
+                for gnn_name in ["SimpleEdgeNet", "CaloClusterNet"]:
                     m = models[gnn_name]
                     gnn_labels = run_gnn_inference(
                         m["model"], data, device, edge_index, n_disk, d_e,
@@ -434,7 +434,7 @@ def main():
         print(f"  Splits:               {a['n_split']:,}")
         print(f"  Merges:               {a['n_merged']:,}")
 
-    for name in ["BFS", "SimpleEdgeNet", "CaloClusterNetV1"]:
+    for name in ["BFS", "SimpleEdgeNet", "CaloClusterNet"]:
         print_summary(name, agg[name])
 
     # Binned metrics
@@ -446,33 +446,33 @@ def main():
     print(f"\n{'='*60}")
     print("  Energy-binned truth match rate")
     print(f"{'='*60}")
-    print(f"  {'Bin':<15} {'BFS':>10} {'SEN':>10} {'CCNv1':>10} {'N_truth':>10}")
+    print(f"  {'Bin':<15} {'BFS':>10} {'SEN':>10} {'CCN':>10} {'N_truth':>10}")
     for i in range(len(energy_labels)):
         vals = {}
-        for name in ["BFS", "SimpleEdgeNet", "CaloClusterNetV1"]:
+        for name in ["BFS", "SimpleEdgeNet", "CaloClusterNet"]:
             bm = binned_match_rate(all_detail[name], "energy",
                                    energy_bins, energy_labels)
             vals[name] = bm[i]
         print(f"  {energy_labels[i]:<15} "
               f"{vals['BFS']['match_rate']:>9.1%} "
               f"{vals['SimpleEdgeNet']['match_rate']:>9.1%} "
-              f"{vals['CaloClusterNetV1']['match_rate']:>9.1%} "
+              f"{vals['CaloClusterNet']['match_rate']:>9.1%} "
               f"{vals['BFS']['n_total']:>10,}")
 
     print(f"\n{'='*60}")
     print("  Multiplicity-binned truth match rate")
     print(f"{'='*60}")
-    print(f"  {'Bin':<15} {'BFS':>10} {'SEN':>10} {'CCNv1':>10} {'N_truth':>10}")
+    print(f"  {'Bin':<15} {'BFS':>10} {'SEN':>10} {'CCN':>10} {'N_truth':>10}")
     for i in range(len(mult_labels)):
         vals = {}
-        for name in ["BFS", "SimpleEdgeNet", "CaloClusterNetV1"]:
+        for name in ["BFS", "SimpleEdgeNet", "CaloClusterNet"]:
             bm = binned_match_rate(all_detail[name], "n_hits",
                                    mult_bins, mult_labels)
             vals[name] = bm[i]
         print(f"  {mult_labels[i]:<15} "
               f"{vals['BFS']['match_rate']:>9.1%} "
               f"{vals['SimpleEdgeNet']['match_rate']:>9.1%} "
-              f"{vals['CaloClusterNetV1']['match_rate']:>9.1%} "
+              f"{vals['CaloClusterNet']['match_rate']:>9.1%} "
               f"{vals['BFS']['n_total']:>10,}")
 
     # Save CSVs
@@ -481,7 +481,7 @@ def main():
 
     csv_path = out_dir / "run1b_results.csv"
     rows = []
-    for name in ["BFS", "SimpleEdgeNet", "CaloClusterNetV1"]:
+    for name in ["BFS", "SimpleEdgeNet", "CaloClusterNet"]:
         a = agg[name]
         tau = "-"
         if name in models:
@@ -507,16 +507,16 @@ def main():
     with open(detail_csv, "w", newline="") as f:
         writer = csv.DictWriter(
             f, fieldnames=["energy", "n_hits",
-                           "bfs_matched", "sen_matched", "ccnv1_matched"])
+                           "bfs_matched", "sen_matched", "ccn_matched"])
         writer.writeheader()
         for bd, sd, cd in zip(all_detail["BFS"], all_detail["SimpleEdgeNet"],
-                              all_detail["CaloClusterNetV1"]):
+                              all_detail["CaloClusterNet"]):
             writer.writerow({
                 "energy": f"{bd['energy']:.4f}",
                 "n_hits": bd["n_hits"],
                 "bfs_matched": int(bd["matched"]),
                 "sen_matched": int(sd["matched"]),
-                "ccnv1_matched": int(cd["matched"]),
+                "ccn_matched": int(cd["matched"]),
             })
     print(f"Saved truth cluster detail to {detail_csv}")
 
@@ -526,8 +526,8 @@ def main():
     import matplotlib.pyplot as plt
 
     method_colors = {"BFS": "coral", "SimpleEdgeNet": "steelblue",
-                     "CaloClusterNetV1": "seagreen"}
-    method_short = {"BFS": "BFS", "SimpleEdgeNet": "SEN", "CaloClusterNetV1": "CCNv1"}
+                     "CaloClusterNet": "seagreen"}
+    method_short = {"BFS": "BFS", "SimpleEdgeNet": "SEN", "CaloClusterNet": "CCN"}
 
     fig, axes = plt.subplots(2, 3, figsize=(20, 12))
     fig.suptitle(
@@ -541,7 +541,7 @@ def main():
     metrics_names = ["Reco MR", "Truth MR"]
     x = np.arange(len(metrics_names))
     w = 0.25
-    for i, name in enumerate(["BFS", "SimpleEdgeNet", "CaloClusterNetV1"]):
+    for i, name in enumerate(["BFS", "SimpleEdgeNet", "CaloClusterNet"]):
         a = agg[name]
         vals = [a["reco_match_rate"] * 100, a["truth_match_rate"] * 100]
         bars = ax.bar(x + (i - 1) * w, vals, w, label=method_short[name],
@@ -561,7 +561,7 @@ def main():
     ax = axes[0, 1]
     metrics_names = ["Splits", "Merges"]
     x = np.arange(len(metrics_names))
-    for i, name in enumerate(["BFS", "SimpleEdgeNet", "CaloClusterNetV1"]):
+    for i, name in enumerate(["BFS", "SimpleEdgeNet", "CaloClusterNet"]):
         a = agg[name]
         vals = [a["n_split"], a["n_merged"]]
         ax.bar(x + (i - 1) * w, vals, w, label=method_short[name],
@@ -578,7 +578,7 @@ def main():
     # 3. Purity distribution
     ax = axes[0, 2]
     bins_hist = np.linspace(0.5, 1.0, 60)
-    for name in ["BFS", "SimpleEdgeNet", "CaloClusterNetV1"]:
+    for name in ["BFS", "SimpleEdgeNet", "CaloClusterNet"]:
         ax.hist(agg[name]["purities"], bins=bins_hist, alpha=0.4,
                 label=f"{method_short[name]} ({agg[name]['mean_purity']:.4f})",
                 color=method_colors[name], edgecolor="white")
@@ -591,7 +591,7 @@ def main():
     # 4. Energy-binned truth match rate
     ax = axes[1, 0]
     x_e = np.arange(len(energy_labels))
-    for i, name in enumerate(["BFS", "SimpleEdgeNet", "CaloClusterNetV1"]):
+    for i, name in enumerate(["BFS", "SimpleEdgeNet", "CaloClusterNet"]):
         bm = binned_match_rate(all_detail[name], "energy",
                                energy_bins, energy_labels)
         mr = [b["match_rate"] * 100 for b in bm]
@@ -611,7 +611,7 @@ def main():
     # 5. Multiplicity-binned truth match rate
     ax = axes[1, 1]
     x_m = np.arange(len(mult_labels))
-    for i, name in enumerate(["BFS", "SimpleEdgeNet", "CaloClusterNetV1"]):
+    for i, name in enumerate(["BFS", "SimpleEdgeNet", "CaloClusterNet"]):
         bm = binned_match_rate(all_detail[name], "n_hits",
                                mult_bins, mult_labels)
         mr = [b["match_rate"] * 100 for b in bm]
@@ -641,13 +641,13 @@ def main():
         ("Merges", "n_merged", "{:,}"),
     ]:
         row = [metric]
-        for name in ["BFS", "SimpleEdgeNet", "CaloClusterNetV1"]:
+        for name in ["BFS", "SimpleEdgeNet", "CaloClusterNet"]:
             row.append(fmt.format(agg[name][key]))
         table_data.append(row)
 
     table = ax.table(
         cellText=table_data,
-        colLabels=["Metric", "BFS", "SEN (0.26)", "CCNv1 (0.20)"],
+        colLabels=["Metric", "BFS", "SEN (0.26)", "CCN (0.20)"],
         cellLoc="center", loc="center")
     table.auto_set_font_size(False)
     table.set_fontsize(10)

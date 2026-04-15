@@ -1,5 +1,5 @@
 """
-Output heads for CaloClusterNetV1.
+Output heads for CaloClusterNet.
 
 NodeSaliencyHead — per-node binary classification (signal vs noise).
 EdgeClusteringHead — per-edge binary classification (same cluster).

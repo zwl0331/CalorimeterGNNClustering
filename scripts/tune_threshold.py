@@ -250,7 +250,7 @@ def main():
         with torch.no_grad():
             output = model(data_norm.to(device))
 
-        # Handle both dict (CaloClusterNetV1) and tensor (SimpleEdgeNet) output
+        # Handle both dict (CaloClusterNet) and tensor (SimpleEdgeNet) output
         if isinstance(output, dict):
             logits_np = output["edge_logits"].cpu().numpy()
             nl = output.get("node_logits")

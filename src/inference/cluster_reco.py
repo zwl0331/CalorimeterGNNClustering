@@ -81,7 +81,7 @@ def reconstruct_clusters(edge_index, edge_logits, n_nodes, energies=None,
     symmetrize : bool
         If True, average directed scores before thresholding.
     node_logits : Tensor or ndarray (N,), optional
-        Raw node saliency logits from CaloClusterNetV1. If provided with
+        Raw node saliency logits from CaloClusterNet. If provided with
         tau_node, edges where either endpoint has saliency < tau_node are
         suppressed before thresholding.
     tau_node : float or None
@@ -177,14 +177,14 @@ def predict_clusters(model, data, device="cpu", tau_edge=0.5,
     Parameters
     ----------
     model : nn.Module
-        Trained SimpleEdgeNet or CaloClusterNetV1.
+        Trained SimpleEdgeNet or CaloClusterNet.
     data : torch_geometric.data.Data
         Single graph with x, edge_index, edge_attr.
     device : str or torch.device
     tau_edge, min_hits, min_energy_mev : see reconstruct_clusters.
     tau_node : float or None
         Node saliency threshold. Only used with models that return
-        node_logits (CaloClusterNetV1).
+        node_logits (CaloClusterNet).
 
     Returns
     -------

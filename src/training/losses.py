@@ -127,7 +127,7 @@ def consistency_loss(edge_logits, node_logits, edge_index):
 
 def multitask_loss(model_output, batch, pos_weight=None,
                    lambda_edge=1.0, lambda_node=0.0, lambda_cons=0.0):
-    """Compute multi-task loss for CaloClusterNetV1.
+    """Compute multi-task loss for CaloClusterNet.
 
     Parameters
     ----------

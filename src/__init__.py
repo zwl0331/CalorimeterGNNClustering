@@ -7,7 +7,7 @@ Subpackages
 -----------
 data        Dataset loading, graph construction, truth labels, normalization.
 geometry    Crystal geometry lookup (crystalId -> disk, x, y).
-models      GNN architectures (SimpleEdgeNet, CaloClusterNetV1).
+models      GNN architectures (SimpleEdgeNet, CaloClusterNet).
 training    Training loop, loss functions, evaluation metrics.
 inference   Cluster reconstruction from edge predictions, postprocessing.
 """

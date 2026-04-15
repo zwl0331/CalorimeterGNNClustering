@@ -23,8 +23,8 @@ graph:
   use_topology_graph: false
 
 model:
-  name: SimpleEdgeNet      # or CaloClusterNetV1
-  hidden_dim: 64           # SimpleEdgeNet; use 96 for CaloClusterNetV1
+  name: SimpleEdgeNet      # or CaloClusterNet
+  hidden_dim: 64           # SimpleEdgeNet; use 96 for CaloClusterNet
   n_mp_layers: 3           # message-passing rounds
 
 train:
