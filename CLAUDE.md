@@ -105,6 +105,9 @@ python3 scripts/train_gnn.py --config configs/default.yaml --device cuda --epoch
 python3 scripts/train_gnn.py --config configs/calo_cluster_net.yaml --device cuda --run-name calo_cluster_net_stage1
 python3 scripts/train_gnn.py --config configs/calo_cluster_net_stage2.yaml --device cuda --run-name calo_cluster_net_stage2 --resume outputs/runs/calo_cluster_net_stage1/checkpoints/best_model.pt
 
+# Train CaloClusterNet with learned saliency (GPU node) — resumes from Stage 1
+python3 scripts/train_gnn.py --config configs/calo_cluster_net_saliency.yaml --device cuda --run-name calo_cluster_net_v2_saliency --resume outputs/runs/calo_cluster_net_v2_stage1/checkpoints/best_model.pt
+
 # Threshold tuning on val set (model-agnostic)
 python3 scripts/tune_threshold.py
 python3 scripts/tune_threshold.py --config configs/calo_cluster_net.yaml --checkpoint outputs/runs/calo_cluster_net_v2_stage1/checkpoints/best_model.pt
@@ -249,6 +252,9 @@ v1 outputs archived in `~/gnn_v1_results.tar.gz` (2026-04-05).
 |-------|-----------|------------|--------|
 | SimpleEdgeNet | 0.966 | 9 | 24 (early stop) |
 | CaloClusterNet (Stage 1) | 0.961 | 13 | 28 (early stop) |
+| CaloClusterNet (Saliency) | 0.962 | 16 | 31 (early stop) |
+
+**CaloClusterNet Saliency training (2026-04-15):** Resumed from Stage 1, retrained with `lambda_node=0.3` using new multi-hit cluster member labels (y_node=1 for hits in clusters with >=2 hits, y_node=0 for singletons/ambiguous). Val node F1 = 0.888 (P=1.000, R=0.800) — perfect precision means it never mislabels a singleton as salient. Checkpoint: `outputs/runs/calo_cluster_net_v2_saliency/`.
 
 **Threshold tuning (val set):** SimpleEdgeNet τ_edge=0.26 (F1=0.9734), CaloClusterNet τ_edge=0.20 (F1=0.9748). Frozen in configs.
 
@@ -265,7 +271,7 @@ v1 outputs archived in `~/gnn_v1_results.tar.gz` (2026-04-05).
 
 **v2 vs v1 improvement:** Truth match +6.2% (88→94%), purity +0.015, merges halved (2,940→1,454). Both GNNs beat BFS on reco match rate, completeness, splits, and merges.
 
-**Checkpoints:** `outputs/runs/simple_edge_net_v2/`, `outputs/runs/calo_cluster_net_v2_stage1/`.
+**Checkpoints:** `outputs/runs/simple_edge_net_v2/`, `outputs/runs/calo_cluster_net_v2_stage1/`, `outputs/runs/calo_cluster_net_v2_saliency/`.
 
 ### Run1B campaign (no magnetic field, calo-entrant truth)
 
@@ -338,50 +344,20 @@ v1 outputs archived in `~/gnn_v1_results.tar.gz` (2026-04-05).
 
 **Downstream-relevant clusters (E_reco >= 50 MeV, ~3,200 per method):**
 
-Without expand_cut, BFS wins on downstream clusters because its `ExpandCut` threshold prevents low-energy hits from bridging between clusters. The GNNs merge more aggressively, absorbing stray pileup hits (~10-30 MeV) that add energy bias and pull centroids.
+| Metric | BFS | SimpleEdgeNet | CaloClusterNet | CCN-Saliency |
+|--------|-----|---------------|----------------|--------------|
+| Mean abs(dE) (MeV) | 0.848 | 1.144 | 0.900 | **0.825** |
+| Mean dr (mm) | 1.652 | 2.298 | 1.837 | **1.616** |
+| abs(dE) > 10 MeV | 3.2% | 4.4% | 3.4% | **3.0%** |
+| Promoted above 50 MeV by merging | 82 (2.6%) | 126 (3.9%) | 99 (3.1%) | **86 (2.7%)** |
 
-**Fix: expand_cut** — analogous to BFS's `ExpandCut`, suppresses edges where both endpoints have energy below a threshold, preventing low-energy hits from acting as bridges. Applied as a post-processing step in `reconstruct_clusters()`, no retraining needed.
+**CCN-Saliency beats BFS on all downstream metrics** with zero trade-off on standard clustering metrics. The approach: clustering is unchanged (same as CaloClusterNet — identical TMR, purity, completeness, splits, merges). Only the cluster physics computation (energy, centroid, time) is recomputed using salient hits only (node saliency score >= τ_node=0.5). This excludes stray pileup singletons (~10-30 MeV) that BFS's `ExpandCut` naturally rejects but GNNs absorb.
 
-**Standard clustering metrics (val set, 3,500 events, 6,058 disk-graphs):**
+The CCN-Saliency model's node head (trained with multi-hit cluster member labels, node F1=0.888, P=1.0, R=0.8) identifies which hits are real shower members vs stray pileup. The saliency reweighting acts as a post-clustering correction, not a clustering change.
 
-| Metric | BFS | SEN | SEN+EC20 | CCN | CCN+EC15 |
-|--------|-----|-----|----------|-----|----------|
-| Reco match rate | 96.6% | 97.2% | 67.1% | 97.2% | 79.4% |
-| Truth match rate | 94.6% | 94.2% | 83.6% | 94.3% | 90.5% |
-| Mean purity | 0.9879 | 0.9874 | 0.9966 | 0.9878 | 0.9937 |
-| Mean completeness | 0.9952 | 0.9979 | 0.9370 | 0.9981 | 0.9663 |
-| Splits | 388 | 214 | 7,096 | 205 | 4,114 |
-| Merges | 1,239 | 1,189 | 254 | 1,162 | 532 |
+**Alternative: expand_cut** — analogous to BFS's `ExpandCut`, suppresses edges where both endpoints have energy below a threshold. Beats BFS on downstream (SEN+EC20: |dE| 0.725, CCN+EC15: 0.799) but destroys standard clustering metrics (splits 7x-20x higher, TMR drops 4-11%). See `outputs/eval_with_expandcut/` for full tables.
 
-**Cluster physics — all clusters (val set):**
-
-| Metric | BFS | SEN | SEN+EC20 | CCN | CCN+EC15 |
-|--------|-----|-----|----------|-----|----------|
-| Matched clusters | 32,024 | 31,264 | 27,748 | 31,327 | 30,061 |
-| Mean abs(dE) (MeV) | 0.513 | 0.457 | 1.651 | 0.430 | 0.925 |
-| Std dE (MeV) | 2.469 | 2.400 | 3.906 | 2.239 | 2.946 |
-| Mean E_reco/E_truth | 1.0123 | 1.0161 | 0.9416 | 1.0157 | 0.9752 |
-| Mean dr (mm) | 1.769 | 1.538 | 3.809 | 1.443 | 2.541 |
-| Mean abs(dt) (ns) | 0.004 | 0.005 | 0.001 | 0.004 | 0.002 |
-| abs(dE) > 10 MeV | 631 (2.0%) | 477 (1.5%) | 1,704 (6.1%) | 435 (1.4%) | 813 (2.7%) |
-| dr > 10 mm | 1,519 (4.7%) | 1,303 (4.2%) | 4,033 (14.5%) | 1,261 (4.0%) | 2,768 (9.2%) |
-
-**Cluster physics — downstream (E_reco >= 50 MeV):**
-
-| Metric | BFS | SEN | SEN+EC20 | CCN | CCN+EC15 |
-|--------|-----|-----|----------|-----|----------|
-| Matched clusters | 3,201 | 3,255 | 3,139 | 3,226 | 3,201 |
-| Mean abs(dE) (MeV) | 0.848 | 1.144 | **0.725** | 0.900 | 0.799 |
-| Std dE (MeV) | 4.318 | 5.146 | 3.856 | 4.444 | 4.148 |
-| Mean E_reco/E_truth | 1.0134 | 1.0244 | 1.0118 | 1.0177 | 1.0145 |
-| Mean dr (mm) | 1.652 | 2.298 | **1.418** | 1.837 | 1.591 |
-| Mean abs(dt) (ns) | 0.005 | 0.021 | 0.004 | 0.013 | 0.011 |
-| abs(dE) > 10 MeV | 104 (3.2%) | 142 (4.4%) | 81 (2.6%) | 110 (3.4%) | 92 (2.9%) |
-| dr > 10 mm | 100 (3.1%) | 140 (4.3%) | 91 (2.9%) | 110 (3.4%) | 99 (3.1%) |
-
-**Key trade-off:** expand_cut dramatically reduces merges and improves purity, but at the cost of more splits and lower completeness on all-cluster metrics. For downstream clusters (E_reco >= 50 MeV), both GNNs with expand_cut beat BFS on energy and centroid accuracy. The right choice depends on whether you optimize for all-cluster metrics (no expand_cut) or downstream physics (with expand_cut).
-
-**Script:** `scripts/evaluate_cluster_physics.py`. **Results:** `outputs/cluster_physics_eval/`, `outputs/eval_with_expandcut/`.
+**Script:** `scripts/evaluate_cluster_physics.py`. **Results:** `outputs/cluster_physics_eval_saliency/`.
 
 ---
 

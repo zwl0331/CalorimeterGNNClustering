@@ -157,7 +157,15 @@ def extract_events_from_file(filepath, crystal_map, graph_cfg, max_events=None):
             y_edge, edge_mask, hit_truth_cluster, is_ambiguous = assign_mc_truth_primary(
                 d_sim_ids, d_edeps_mc, d_disks, edge_index, calo_root_map,
             )
-            y_node = (~is_ambiguous).astype(np.int64)
+            # Node saliency label: 1 = multi-hit truth cluster, 0 = singleton or ambiguous.
+            # Singletons are stray pileup hits (10-30 MeV) that cause bridge merges.
+            y_node = np.zeros(n_disk, dtype=np.int64)
+            for cid in np.unique(hit_truth_cluster):
+                if cid < 0:
+                    continue
+                mask = hit_truth_cluster == cid
+                if mask.sum() >= 2:
+                    y_node[mask] = 1
 
             # Build PyG Data
             data = Data(

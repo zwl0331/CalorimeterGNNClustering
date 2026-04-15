@@ -71,7 +71,7 @@ def masked_bce_loss(logits, targets, mask, pos_weight=None):
     return loss
 
 
-def node_saliency_loss(node_logits, y_node):
+def node_saliency_loss(node_logits, y_node, pos_weight=None):
     """BCE loss for node saliency prediction.
 
     Parameters
@@ -79,18 +79,21 @@ def node_saliency_loss(node_logits, y_node):
     node_logits : Tensor (N,)
         Raw logits for node saliency.
     y_node : Tensor (N,)
-        Binary node labels (1 = signal hit with known truth cluster, 0 = noise/unassigned).
+        Binary node labels (1 = multi-hit cluster member, 0 = singleton/ambiguous).
+    pos_weight : Tensor or None
+        Weight for positive class. Use to handle class imbalance.
 
     Returns
     -------
     loss : scalar Tensor
     """
-    targets = (y_node >= 0).float()  # y_node >= 0 means assigned to a truth cluster
+    targets = y_node.float()
 
     if node_logits.numel() == 0:
         return torch.tensor(0.0, device=node_logits.device, requires_grad=True)
 
-    return F.binary_cross_entropy_with_logits(node_logits, targets)
+    return F.binary_cross_entropy_with_logits(
+        node_logits, targets, pos_weight=pos_weight)
 
 
 def consistency_loss(edge_logits, node_logits, edge_index):
