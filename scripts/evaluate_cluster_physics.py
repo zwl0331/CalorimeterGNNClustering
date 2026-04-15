@@ -236,33 +236,43 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # ── Load models ──
+    # Each entry: (config_path, checkpoint_path, bfs_expand_cut or None)
     configs = {
         "SimpleEdgeNet": ("configs/default.yaml",
-                          "outputs/runs/simple_edge_net_v2/checkpoints/best_model.pt"),
+                          "outputs/runs/simple_edge_net_v2/checkpoints/best_model.pt", None),
+        "SEN+BFS10": ("configs/default.yaml",
+                      "outputs/runs/simple_edge_net_v2/checkpoints/best_model.pt", 10),
         "CaloClusterNet": ("configs/calo_cluster_net.yaml",
-                           "outputs/runs/calo_cluster_net_v2_stage1/checkpoints/best_model.pt"),
-        "CCN-Saliency": ("configs/calo_cluster_net_saliency.yaml",
-                         "outputs/runs/calo_cluster_net_v2_saliency/checkpoints/best_model.pt"),
+                           "outputs/runs/calo_cluster_net_v2_stage1/checkpoints/best_model.pt", None),
+        "CCN+BFS10": ("configs/calo_cluster_net.yaml",
+                      "outputs/runs/calo_cluster_net_v2_stage1/checkpoints/best_model.pt", 10),
     }
 
     models = {}
     tau_edges = {}
     tau_nodes = {}
-    for name, (cfg_path, ckpt_path) in configs.items():
+    bfs_ecs = {}
+    for name, (cfg_path, ckpt_path, bfs_ec) in configs.items():
         with open(cfg_path) as f:
             cfg = yaml.safe_load(f)
-        model = build_model(cfg)
-        ckpt = torch.load(ckpt_path, weights_only=False, map_location=device)
-        model.load_state_dict(ckpt["model_state_dict"])
-        model.to(device).eval()
-        models[name] = model
+        # Reuse model object if same checkpoint
+        base_name = name.split("+")[0]
+        if base_name in models:
+            models[name] = models[base_name]
+        else:
+            model = build_model(cfg)
+            ckpt = torch.load(ckpt_path, weights_only=False, map_location=device)
+            model.load_state_dict(ckpt["model_state_dict"])
+            model.to(device).eval()
+            models[name] = model
         tau_edges[name] = cfg["inference"]["tau_edge"]
-        # Only use tau_node if model has node head and was trained with lambda_node > 0
         model_type = cfg["model"].get("name", "SimpleEdgeNet")
         has_node = model_type == "CaloClusterNet"
         lam_node = cfg.get("train", {}).get("lambda_node", 0.0)
         tau_nodes[name] = cfg["inference"].get("tau_node") if (has_node and lam_node > 0) else None
-        print(f"Loaded {name}: epoch {ckpt['epoch']}, tau_edge={tau_edges[name]}")
+        bfs_ecs[name] = bfs_ec
+        ec_str = f", bfs_ec={bfs_ec}" if bfs_ec else ""
+        print(f"Loaded {name}: tau_edge={tau_edges[name]}{ec_str}")
 
     # ── Load shared resources ──
     with open("configs/default.yaml") as f:
@@ -420,7 +430,6 @@ def main():
                         logits_np = output.cpu().numpy()
                         node_logits_np = None
 
-                    # Clustering: no saliency filtering — keep all hits
                     gnn_labels, _ = reconstruct_clusters(
                         edge_index=edge_index,
                         edge_logits=logits_np,
@@ -428,6 +437,7 @@ def main():
                         energies=d_e,
                         tau_edge=tau_edges[model_name],
                         min_hits=1, min_energy_mev=0.0,
+                        bfs_expand_cut=bfs_ecs[model_name],
                     )
 
                     # For saliency models, compute cluster physics from
@@ -465,7 +475,7 @@ def main():
     print(f"Saved {len(all_records)} cluster residuals to {csv_path}")
 
     # ── Summary statistics ──
-    methods = ["BFS", "SimpleEdgeNet", "CaloClusterNet", "CCN-Saliency"]
+    methods = ["BFS", "SimpleEdgeNet", "SEN+BFS10", "CaloClusterNet", "CCN+BFS10"]
     summary_lines = []
 
     def add(line):
@@ -558,8 +568,8 @@ def main():
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    colors = {"BFS": "coral", "SimpleEdgeNet": "steelblue",
-              "CaloClusterNet": "seagreen", "CCN-Saliency": "darkorchid"}
+    colors = {"BFS": "coral", "SimpleEdgeNet": "steelblue", "SEN+BFS10": "royalblue",
+              "CaloClusterNet": "seagreen", "CCN+BFS10": "darkgreen"}
 
     fig, axes = plt.subplots(2, 3, figsize=(18, 11))
     fig.suptitle(f"Cluster-Level Physics Residuals\n"
