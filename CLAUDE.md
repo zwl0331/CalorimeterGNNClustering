@@ -338,16 +338,50 @@ v1 outputs archived in `~/gnn_v1_results.tar.gz` (2026-04-05).
 
 **Downstream-relevant clusters (E_reco >= 50 MeV, ~3,200 per method):**
 
-| Metric | BFS | SimpleEdgeNet | CaloClusterNet |
-|--------|-----|---------------|----------------|
-| Mean abs(dE) (MeV) | **0.848** | 1.144 | 0.900 |
-| Mean dr (mm) | **1.652** | 2.298 | 1.837 |
-| abs(dE) > 10 MeV | **3.2%** | 4.4% | 3.4% |
-| Promoted above 50 MeV by merging | **82 (2.6%)** | 126 (3.9%) | 99 (3.1%) |
+Without expand_cut, BFS wins on downstream clusters because its `ExpandCut` threshold prevents low-energy hits from bridging between clusters. The GNNs merge more aggressively, absorbing stray pileup hits (~10-30 MeV) that add energy bias and pull centroids.
 
-**BFS wins on downstream-relevant clusters.** The GNNs' overall advantage came from better handling of low-energy clusters that never enter track finding. For clusters that actually reach reconstruction, the GNNs merge more aggressively — absorbing stray low-energy hits that BFS's `ExpandCut` threshold naturally rejects. These merges add ~20 MeV energy bias and ~33-40 mm centroid displacement. This suggests a post-clustering cleanup step (fringe hit removal) could recover GNN performance on downstream clusters.
+**Fix: expand_cut** — analogous to BFS's `ExpandCut`, suppresses edges where both endpoints have energy below a threshold, preventing low-energy hits from acting as bridges. Applied as a post-processing step in `reconstruct_clusters()`, no retraining needed.
 
-**Script:** `scripts/evaluate_cluster_physics.py`. **Results:** `outputs/cluster_physics_eval/`.
+**Standard clustering metrics (val set, 3,500 events, 6,058 disk-graphs):**
+
+| Metric | BFS | SEN | SEN+EC20 | CCN | CCN+EC15 |
+|--------|-----|-----|----------|-----|----------|
+| Reco match rate | 96.6% | 97.2% | 67.1% | 97.2% | 79.4% |
+| Truth match rate | 94.6% | 94.2% | 83.6% | 94.3% | 90.5% |
+| Mean purity | 0.9879 | 0.9874 | 0.9966 | 0.9878 | 0.9937 |
+| Mean completeness | 0.9952 | 0.9979 | 0.9370 | 0.9981 | 0.9663 |
+| Splits | 388 | 214 | 7,096 | 205 | 4,114 |
+| Merges | 1,239 | 1,189 | 254 | 1,162 | 532 |
+
+**Cluster physics — all clusters (val set):**
+
+| Metric | BFS | SEN | SEN+EC20 | CCN | CCN+EC15 |
+|--------|-----|-----|----------|-----|----------|
+| Matched clusters | 32,024 | 31,264 | 27,748 | 31,327 | 30,061 |
+| Mean abs(dE) (MeV) | 0.513 | 0.457 | 1.651 | 0.430 | 0.925 |
+| Std dE (MeV) | 2.469 | 2.400 | 3.906 | 2.239 | 2.946 |
+| Mean E_reco/E_truth | 1.0123 | 1.0161 | 0.9416 | 1.0157 | 0.9752 |
+| Mean dr (mm) | 1.769 | 1.538 | 3.809 | 1.443 | 2.541 |
+| Mean abs(dt) (ns) | 0.004 | 0.005 | 0.001 | 0.004 | 0.002 |
+| abs(dE) > 10 MeV | 631 (2.0%) | 477 (1.5%) | 1,704 (6.1%) | 435 (1.4%) | 813 (2.7%) |
+| dr > 10 mm | 1,519 (4.7%) | 1,303 (4.2%) | 4,033 (14.5%) | 1,261 (4.0%) | 2,768 (9.2%) |
+
+**Cluster physics — downstream (E_reco >= 50 MeV):**
+
+| Metric | BFS | SEN | SEN+EC20 | CCN | CCN+EC15 |
+|--------|-----|-----|----------|-----|----------|
+| Matched clusters | 3,201 | 3,255 | 3,139 | 3,226 | 3,201 |
+| Mean abs(dE) (MeV) | 0.848 | 1.144 | **0.725** | 0.900 | 0.799 |
+| Std dE (MeV) | 4.318 | 5.146 | 3.856 | 4.444 | 4.148 |
+| Mean E_reco/E_truth | 1.0134 | 1.0244 | 1.0118 | 1.0177 | 1.0145 |
+| Mean dr (mm) | 1.652 | 2.298 | **1.418** | 1.837 | 1.591 |
+| Mean abs(dt) (ns) | 0.005 | 0.021 | 0.004 | 0.013 | 0.011 |
+| abs(dE) > 10 MeV | 104 (3.2%) | 142 (4.4%) | 81 (2.6%) | 110 (3.4%) | 92 (2.9%) |
+| dr > 10 mm | 100 (3.1%) | 140 (4.3%) | 91 (2.9%) | 110 (3.4%) | 99 (3.1%) |
+
+**Key trade-off:** expand_cut dramatically reduces merges and improves purity, but at the cost of more splits and lower completeness on all-cluster metrics. For downstream clusters (E_reco >= 50 MeV), both GNNs with expand_cut beat BFS on energy and centroid accuracy. The right choice depends on whether you optimize for all-cluster metrics (no expand_cut) or downstream physics (with expand_cut).
+
+**Script:** `scripts/evaluate_cluster_physics.py`. **Results:** `outputs/cluster_physics_eval/`, `outputs/eval_with_expandcut/`.
 
 ---
 

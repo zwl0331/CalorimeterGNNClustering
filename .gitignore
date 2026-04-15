@@ -31,6 +31,8 @@ outputs/success*/
 outputs/run1b_eval/
 outputs/analysis_for_sophie/
 outputs/cluster_physics_eval/
+outputs/cluster_physics_eval_no_ec/
+outputs/eval_with_expandcut/
 checkpoints/*
 !checkpoints/.gitkeep
 

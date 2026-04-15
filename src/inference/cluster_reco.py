@@ -57,7 +57,8 @@ def symmetrize_edge_scores(edge_index, edge_probs):
 
 def reconstruct_clusters(edge_index, edge_logits, n_nodes, energies=None,
                          tau_edge=0.5, min_hits=2, min_energy_mev=10.0,
-                         symmetrize=True, node_logits=None, tau_node=None):
+                         symmetrize=True, node_logits=None, tau_node=None,
+                         expand_cut=None):
     """Reconstruct clusters from edge predictions.
 
     Parameters
@@ -70,7 +71,7 @@ def reconstruct_clusters(edge_index, edge_logits, n_nodes, energies=None,
         Number of nodes in the graph.
     energies : Tensor or ndarray (N,), optional
         Hit energies in MeV (raw, not log-transformed). Used for min_energy
-        cleanup. If None, energy cleanup is skipped.
+        cleanup and expand_cut. If None, energy cleanup is skipped.
     tau_edge : float
         Edge classification threshold on probabilities.
     min_hits : int
@@ -88,6 +89,12 @@ def reconstruct_clusters(edge_index, edge_logits, n_nodes, energies=None,
         Node saliency threshold. Edges with either endpoint below this
         threshold have their probability zeroed out. Only used when
         node_logits is provided.
+    expand_cut : float or None
+        Analogous to BFS ExpandCut. Edges where BOTH endpoints have
+        energy below this threshold are suppressed — prevents low-energy
+        hits from bridging between clusters. Hits below expand_cut can
+        still join a cluster through an edge to a high-energy hit, but
+        cannot act as bridges. If None, no expand cut is applied.
 
     Returns
     -------
@@ -130,6 +137,16 @@ def reconstruct_clusters(edge_index, edge_logits, n_nodes, energies=None,
 
     src = ei_sym[0, keep]
     dst = ei_sym[1, keep]
+
+    # Expand cut: suppress edges where both endpoints are below threshold.
+    # Low-energy hits can still join a cluster via an edge to a high-energy
+    # hit, but two low-energy hits cannot bridge between clusters.
+    if expand_cut is not None and energies is not None:
+        both_low = (energies[src] < expand_cut) & (energies[dst] < expand_cut)
+        src = src[~both_low]
+        dst = dst[~both_low]
+        if len(src) == 0:
+            return cluster_labels, edge_probs_raw
 
     # Build symmetric adjacency (for connected_components)
     src_both = np.concatenate([src, dst])
