@@ -55,3 +55,4 @@ slides/
 # splits/train_files.txt       -- frozen split, commit this
 # splits/val_files.txt
 # splits/test_files.txt
+outputs/cluster_physics_eval_bfs_test/
