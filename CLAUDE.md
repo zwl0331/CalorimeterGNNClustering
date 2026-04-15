@@ -355,9 +355,34 @@ v1 outputs archived in `~/gnn_v1_results.tar.gz` (2026-04-05).
 
 The CCN-Saliency model's node head (trained with multi-hit cluster member labels, node F1=0.888, P=1.0, R=0.8) identifies which hits are real shower members vs stray pileup. The saliency reweighting acts as a post-clustering correction, not a clustering change.
 
-**Alternative: expand_cut** — analogous to BFS's `ExpandCut`, suppresses edges where both endpoints have energy below a threshold. Beats BFS on downstream (SEN+EC20: |dE| 0.725, CCN+EC15: 0.799) but destroys standard clustering metrics (splits 7x-20x higher, TMR drops 4-11%). See `outputs/eval_with_expandcut/` for full tables.
+**BFS-style traversal on GNN edges (best approach):** Replace connected components with BFS traversal that mirrors Offline's ClusterFinder. Low-energy hits (E < 10 MeV) join clusters but don't expand to neighbors — preventing stray pileup from bridging between clusters while keeping all hits as cluster members. Uses `bfs_expand_cut=10` parameter in `reconstruct_clusters()`. No retraining needed.
 
-**Script:** `scripts/evaluate_cluster_physics.py`. **Results:** `outputs/cluster_physics_eval_saliency/`.
+**Full results with BFS traversal (val set, 3,500 events, 6,058 disk-graphs):**
+
+All clusters:
+
+| Metric | BFS | SEN | SEN+BFS10 | CCN | **CCN+BFS10** |
+|--------|-----|-----|-----------|-----|---------------|
+| Mean abs(dE) (MeV) | 0.513 | 0.457 | 0.423 | 0.430 | **0.413** |
+| Mean dr (mm) | 1.769 | 1.538 | 1.492 | 1.443 | **1.428** |
+| abs(dE) > 10 MeV | 2.0% | 1.5% | 1.3% | 1.4% | **1.3%** |
+
+Downstream (E_reco >= 50 MeV):
+
+| Metric | BFS | SEN | SEN+BFS10 | CCN | **CCN+BFS10** |
+|--------|-----|-----|-----------|-----|---------------|
+| Mean abs(dE) (MeV) | 0.848 | 1.144 | 0.712 | 0.900 | **0.637** |
+| Mean dr (mm) | 1.652 | 2.298 | 1.412 | 1.837 | **1.292** |
+| abs(dE) > 10 MeV | 3.2% | 4.4% | 2.7% | 3.4% | **2.4%** |
+| Promoted | 82 | 126 | 77 | 99 | **67** |
+
+**CCN+BFS10 wins every metric simultaneously** — the hybrid GNN edge classification + BFS traversal gets the best of both worlds.
+
+**Note on E_reco/E_truth:** BFS has the best (closest to 1.0) mean E_ratio on all-clusters (1.0123 vs CCN+BFS10 1.0139). GNNs fix splits (dE<0) more effectively than merges (dE>0), causing an asymmetric upward shift. Mean abs(dE) is the more honest metric.
+
+**Caveat — signal region (100-120 MeV):** CCN performs worse than BFS/SEN at the Mu2e signal energy (~105 MeV). At 100-120 MeV (295 clusters): CCN abs(dE) = 0.425 vs BFS/SEN = 0.335, CCN dr = 1.901 vs BFS/SEN = 1.447. SimpleEdgeNet matches BFS exactly at this energy. The CCN+BFS10 overall advantage comes from the 50-110 MeV bulk. **SEN+BFS10 may be safer for signal-sensitive analyses.**
+
+**Script:** `scripts/evaluate_cluster_physics.py`. **Results:** `outputs/cluster_physics_eval_bfs_traversal/`.
 
 ---
 
