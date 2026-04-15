@@ -128,6 +128,9 @@ OMP_NUM_THREADS=4 python3 scripts/evaluate_new_truth.py --split val --max-events
 
 # Run1B (no-field) evaluation: BFS + both GNNs
 OMP_NUM_THREADS=4 PYTHONUNBUFFERED=1 python3 -u scripts/evaluate_run1b.py --n-events 500
+
+# Cluster-level physics evaluation (energy, centroid, time residuals)
+OMP_NUM_THREADS=4 PYTHONUNBUFFERED=1 python3 -u scripts/evaluate_cluster_physics.py --n-events 500
 ```
 
 ---
@@ -174,7 +177,7 @@ ROOT files v2 (EventNtuple/ntuple TTree, with ancestorSimIds)
 | What | Path |
 |------|------|
 | MDC2025 v2 ROOT files | `root_files_v2/` — **deleted 2026-04-13** (97 GB freed). Reproducible via FermiGrid (cluster `90854576`). |
-| Run1B v2 ROOT files | `root_files_run1b/` — pending FermiGrid reprocessing (20 files, no-field scenario) |
+| Run1B v2 ROOT files | `root_files_run1b/` — 20 files via FermiGrid (cluster `27583402`, 405 MB total, no-field scenario) |
 | Run1B MCS art files | `/pnfs/mu2e/tape/phy-sim/mcs/mu2e/FlateMinus-KL/Run1Bah_best_v1_4-001/art/` (20 files, 24 GB) |
 | Run1B NTS files (no ancestry) | `/pnfs/mu2e/tape/phy-nts/nts/mu2e/FlateMinus-KL/Run1B-005/root/` (20 files, ~40K events each) |
 | Packed graphs (MDC2025) | `data/processed/{train,val,test}.pt` (119 + 23 + 27 MB, calo-entrant truth) |
@@ -289,6 +292,62 @@ v1 outputs archived in `~/gnn_v1_results.tar.gz` (2026-04-05).
 - MDC2025 with pileup remains the meaningful benchmark.
 
 **Script:** `scripts/evaluate_run1b.py`. **Results:** `outputs/run1b_eval/`.
+
+### Cluster-level physics evaluation (downstream quantities)
+
+**Goal:** Evaluate not just hit grouping quality, but the downstream-relevant quantities that the reconstruction chain actually consumes: total energy, centroid position, and seed hit time.
+
+**Method:** For each matched reco↔truth cluster pair (greedy energy-weighted matching, purity > 0.5, completeness > 0.5), compute residuals:
+- Energy residual: dE = E_reco - E_truth
+- Centroid displacement: dr = Euclidean distance between energy-weighted centroids (x-y)
+- Time residual: dt = t_reco - t_truth (seed hit = most energetic, matching Offline convention)
+
+**Val set (3,500 events, 6,058 disk-graphs, calo-entrant truth):**
+
+| Metric | BFS | SimpleEdgeNet (τ=0.26) | CaloClusterNet (τ=0.20) |
+|--------|-----|------------------------|---------------------------|
+| Matched clusters | 32,024 | 31,264 | 31,327 |
+| Mean abs(dE) (MeV) | 0.513 | 0.457 | **0.430** |
+| Std dE (MeV) | 2.469 | 2.400 | **2.239** |
+| Mean E_reco/E_truth | 1.0123 | 1.0161 | 1.0157 |
+| Mean dr (mm) | 1.769 | 1.538 | **1.443** |
+| Mean abs(dt) (ns) | 0.001 | 0.000 | 0.000 |
+| abs(dE) > 10 MeV | 631 (2.0%) | 477 (1.5%) | **435 (1.4%)** |
+| dr > 10 mm | 1,519 (4.7%) | 1,303 (4.2%) | **1,261 (4.0%)** |
+
+**Energy-binned mean abs(dE) (MeV):**
+
+| Bin | BFS | SimpleEdgeNet | CaloClusterNet |
+|-----|-----|---------------|----------------|
+| < 50 MeV | 0.523 | 0.470 | **0.441** |
+| 50-200 MeV | 0.422 | 0.342 | **0.325** |
+
+**Multiplicity-binned mean abs(dE) (MeV):**
+
+| Hits | BFS | SimpleEdgeNet | CaloClusterNet |
+|------|-----|---------------|----------------|
+| 1 hit | 0.352 | 0.354 | 0.355 |
+| 2-3 hits | 0.653 | 0.553 | **0.508** |
+| 4+ hits | 0.629 | 0.496 | **0.433** |
+
+**Key findings (all clusters):**
+- CaloClusterNet wins on every metric when including all clusters. GNNs produce ~16% lower energy error and ~18% lower centroid displacement than BFS.
+- Single-hit clusters are identical across methods. Gains come from multi-hit clusters where merge/split errors matter.
+- Time residuals are near-zero for all methods — the seed hit (most energetic) is almost always the same.
+- >90% of matched clusters have zero residuals (identical hit lists). Differences are in the ~2-5% tail.
+
+**Downstream-relevant clusters (E_reco >= 50 MeV, ~3,200 per method):**
+
+| Metric | BFS | SimpleEdgeNet | CaloClusterNet |
+|--------|-----|---------------|----------------|
+| Mean abs(dE) (MeV) | **0.848** | 1.144 | 0.900 |
+| Mean dr (mm) | **1.652** | 2.298 | 1.837 |
+| abs(dE) > 10 MeV | **3.2%** | 4.4% | 3.4% |
+| Promoted above 50 MeV by merging | **82 (2.6%)** | 126 (3.9%) | 99 (3.1%) |
+
+**BFS wins on downstream-relevant clusters.** The GNNs' overall advantage came from better handling of low-energy clusters that never enter track finding. For clusters that actually reach reconstruction, the GNNs merge more aggressively — absorbing stray low-energy hits that BFS's `ExpandCut` threshold naturally rejects. These merges add ~20 MeV energy bias and ~33-40 mm centroid displacement. This suggests a post-clustering cleanup step (fringe hit removal) could recover GNN performance on downstream clusters.
+
+**Script:** `scripts/evaluate_cluster_physics.py`. **Results:** `outputs/cluster_physics_eval/`.
 
 ---
 
