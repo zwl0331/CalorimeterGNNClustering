@@ -5,14 +5,62 @@ Given edge logits from SimpleEdgeNet:
   1. Sigmoid → probabilities
   2. Symmetrize directed edge scores (mean of p_ij and p_ji)
   3. Threshold: keep edges with p > tau_edge
-  4. Connected components → cluster labels
+  4. Connected components (or BFS with expand_cut) → cluster labels
   5. Cleanup: remove clusters below min_hits or min_energy
 """
+
+from collections import deque
 
 import numpy as np
 import torch
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
+
+
+def _bfs_expand_cut(adj_list, energies, expand_cut):
+    """BFS traversal with expand_cut — mirrors Offline's ClusterFinder.
+
+    Seeds from highest-energy hits. Each hit is added to the cluster of
+    its seed, but only hits with energy >= expand_cut continue the BFS
+    expansion. Low-energy hits join but don't recruit neighbors.
+
+    This matches BFS's ExpandCut behavior: a low-energy hit is a leaf in
+    the traversal, not a bridge.
+
+    Parameters
+    ----------
+    adj_list : list of lists
+        Adjacency list from thresholded GNN edges.
+    energies : ndarray (N,)
+        Hit energies in MeV.
+    expand_cut : float
+        Minimum energy (MeV) to expand from a hit.
+
+    Returns
+    -------
+    labels : ndarray (N,) int64
+        Cluster ID per node. Every node gets assigned (no -1).
+    """
+    n = len(energies)
+    labels = np.full(n, -1, dtype=np.int64)
+    cluster_id = 0
+
+    for seed in np.argsort(-energies):
+        if labels[seed] >= 0:
+            continue
+        queue = deque([seed])
+        labels[seed] = cluster_id
+        while queue:
+            node = queue.popleft()
+            if energies[node] < expand_cut:
+                continue  # joins cluster but doesn't expand
+            for neighbor in adj_list[node]:
+                if labels[neighbor] < 0:
+                    labels[neighbor] = cluster_id
+                    queue.append(neighbor)
+        cluster_id += 1
+
+    return labels
 
 
 def symmetrize_edge_scores(edge_index, edge_probs):
@@ -58,7 +106,8 @@ def symmetrize_edge_scores(edge_index, edge_probs):
 def reconstruct_clusters(edge_index, edge_logits, n_nodes, energies=None,
                          tau_edge=0.5, min_hits=2, min_energy_mev=10.0,
                          symmetrize=True, node_logits=None, tau_node=None,
-                         expand_cut=None, saliency_prune=False):
+                         expand_cut=None, saliency_prune=False,
+                         bfs_expand_cut=None):
     """Reconstruct clusters from edge predictions.
 
     Parameters
@@ -99,6 +148,13 @@ def reconstruct_clusters(edge_index, edge_logits, n_nodes, energies=None,
         If True, after connected components, remove hits with saliency below
         tau_node from their clusters. This trims stray pileup hits that were
         absorbed via edges to salient cluster members.
+    bfs_expand_cut : float or None
+        If provided, replaces connected_components with BFS traversal that
+        mirrors Offline's ClusterFinder. Hits with energy >= bfs_expand_cut
+        expand to neighbors; lower-energy hits join but don't expand (leaves
+        in the traversal). This preserves completeness (all hits join clusters)
+        while preventing low-energy strays from bridging between clusters.
+        Mutually exclusive with expand_cut.
 
     Returns
     -------
@@ -157,19 +213,26 @@ def reconstruct_clusters(edge_index, edge_logits, n_nodes, energies=None,
         if len(src) == 0:
             return cluster_labels, edge_probs_raw
 
-    # Build symmetric adjacency (for connected_components)
-    src_both = np.concatenate([src, dst])
-    dst_both = np.concatenate([dst, src])
-    vals = np.ones(len(src_both), dtype=np.float32)
-    adj = coo_matrix((vals, (src_both, dst_both)), shape=(n_nodes, n_nodes))
-
-    n_components, labels = connected_components(adj, directed=False)
-
-    # Assign labels, then apply cleanup
-    cluster_labels[:] = labels
+    if bfs_expand_cut is not None and energies is not None:
+        # BFS traversal with expand_cut (mirrors Offline's ClusterFinder)
+        adj_list = [[] for _ in range(n_nodes)]
+        for i in range(len(src)):
+            adj_list[src[i]].append(dst[i])
+            adj_list[dst[i]].append(src[i])
+        cluster_labels[:] = _bfs_expand_cut(adj_list, energies, bfs_expand_cut)
+    else:
+        # Standard connected components
+        src_both = np.concatenate([src, dst])
+        dst_both = np.concatenate([dst, src])
+        vals = np.ones(len(src_both), dtype=np.float32)
+        adj = coo_matrix((vals, (src_both, dst_both)), shape=(n_nodes, n_nodes))
+        n_components, labels = connected_components(adj, directed=False)
+        cluster_labels[:] = labels
 
     # Cleanup: min_hits
-    for cid in range(n_components):
+    for cid in np.unique(cluster_labels):
+        if cid < 0:
+            continue
         mask = cluster_labels == cid
         if mask.sum() < min_hits:
             cluster_labels[mask] = -1
