@@ -108,12 +108,16 @@ def reconstruct_clusters(edge_index, edge_logits, n_nodes, energies=None,
 
     edge_probs_raw = 1.0 / (1.0 + np.exp(-edge_logits.astype(np.float64)))
 
-    # Node saliency prefiltering: zero out edges where either endpoint is non-salient
+    # Node saliency bridge suppression: zero out edges where BOTH endpoints
+    # are non-salient (learned analog of expand_cut). Unlike the old approach
+    # that zeroed edges when EITHER endpoint was non-salient, this only
+    # prevents two non-salient nodes from bridging clusters together.
+    # A non-salient node can still join a cluster via a salient neighbor.
     if node_logits is not None and tau_node is not None:
         node_probs = 1.0 / (1.0 + np.exp(-node_logits.astype(np.float64)))
         src, dst = edge_index[0], edge_index[1]
-        non_salient = (node_probs[src] < tau_node) | (node_probs[dst] < tau_node)
-        edge_probs_raw[non_salient] = 0.0
+        both_non_salient = (node_probs[src] < tau_node) & (node_probs[dst] < tau_node)
+        edge_probs_raw[both_non_salient] = 0.0
 
     if symmetrize:
         ei_sym, ep_sym = symmetrize_edge_scores(edge_index, edge_probs_raw)

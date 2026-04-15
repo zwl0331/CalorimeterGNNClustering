@@ -105,6 +105,9 @@ python3 scripts/train_gnn.py --config configs/default.yaml --device cuda --epoch
 python3 scripts/train_gnn.py --config configs/calo_cluster_net.yaml --device cuda --run-name calo_cluster_net_stage1
 python3 scripts/train_gnn.py --config configs/calo_cluster_net_stage2.yaml --device cuda --run-name calo_cluster_net_stage2 --resume outputs/runs/calo_cluster_net_stage1/checkpoints/best_model.pt
 
+# Train CaloClusterNet with learned saliency (GPU node) — resumes from Stage 1
+python3 scripts/train_gnn.py --config configs/calo_cluster_net_saliency.yaml --device cuda --run-name calo_cluster_net_v2_saliency --resume outputs/runs/calo_cluster_net_v2_stage1/checkpoints/best_model.pt
+
 # Threshold tuning on val set (model-agnostic)
 python3 scripts/tune_threshold.py
 python3 scripts/tune_threshold.py --config configs/calo_cluster_net.yaml --checkpoint outputs/runs/calo_cluster_net_v2_stage1/checkpoints/best_model.pt
