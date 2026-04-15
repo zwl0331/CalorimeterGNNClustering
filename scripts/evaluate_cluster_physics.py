@@ -46,7 +46,8 @@ from torch_geometric.data import Data
 
 # ── Cluster physics computation ─────────────────────────────────────────────
 
-def compute_cluster_physics(labels, positions, energies, times):
+def compute_cluster_physics(labels, positions, energies, times,
+                            saliency_mask=None):
     """Compute energy, centroid, and time for each cluster.
 
     Parameters
@@ -55,6 +56,11 @@ def compute_cluster_physics(labels, positions, energies, times):
     positions : ndarray (N, 2) — (x, y) in mm
     energies : ndarray (N,) — MeV
     times : ndarray (N,) — ns
+    saliency_mask : ndarray (N,) bool, optional
+        If provided, cluster physics are computed using only salient hits.
+        The cluster membership itself is unchanged — all hits stay in their
+        clusters for matching purposes, but energy/centroid/time are computed
+        from the salient subset only.
 
     Returns
     -------
@@ -65,13 +71,22 @@ def compute_cluster_physics(labels, positions, energies, times):
         if cid < 0:
             continue
         mask = labels == cid
-        e = energies[mask]
+        if saliency_mask is not None:
+            # Use only salient hits for physics computation
+            physics_mask = mask & saliency_mask
+            if physics_mask.sum() == 0:
+                # All hits non-salient — fall back to full cluster
+                physics_mask = mask
+        else:
+            physics_mask = mask
+
+        e = energies[physics_mask]
         total_e = e.sum()
         if total_e <= 0:
             continue
         w = e / total_e
-        pos = positions[mask]
-        t = times[mask]
+        pos = positions[physics_mask]
+        t = times[physics_mask]
 
         # Seed time = time of most energetic hit (Offline convention)
         seed_time = float(t[np.argmax(e)])
@@ -81,7 +96,7 @@ def compute_cluster_physics(labels, positions, energies, times):
             "centroid_x": float(np.dot(w, pos[:, 0])),
             "centroid_y": float(np.dot(w, pos[:, 1])),
             "time": seed_time,
-            "n_hits": int(mask.sum()),
+            "n_hits": int(mask.sum()),  # n_hits = full cluster size
         }
     return result
 
@@ -89,14 +104,19 @@ def compute_cluster_physics(labels, positions, energies, times):
 # ── Matching and residual computation ────────────────────────────────────────
 
 def match_and_compute_residuals(pred_labels, truth_labels, positions,
-                                energies, times, method_name):
+                                energies, times, method_name,
+                                saliency_mask=None):
     """Match reco to truth clusters and compute physics residuals.
 
     Uses greedy energy-weighted matching (purity > 0.5, completeness > 0.5).
+    Matching uses full cluster energies (all hits). Physics residuals use
+    saliency-filtered cluster properties when saliency_mask is provided.
 
     Returns list of dicts, one per matched pair.
     """
-    pred_physics = compute_cluster_physics(pred_labels, positions, energies, times)
+    # Physics computed from salient hits only (if mask provided)
+    pred_physics = compute_cluster_physics(pred_labels, positions, energies,
+                                           times, saliency_mask=saliency_mask)
     truth_physics = compute_cluster_physics(truth_labels, positions, energies, times)
 
     pred_ids = sorted(pred_physics.keys())
@@ -221,6 +241,8 @@ def main():
                           "outputs/runs/simple_edge_net_v2/checkpoints/best_model.pt"),
         "CaloClusterNet": ("configs/calo_cluster_net.yaml",
                            "outputs/runs/calo_cluster_net_v2_stage1/checkpoints/best_model.pt"),
+        "CCN-Saliency": ("configs/calo_cluster_net_saliency.yaml",
+                         "outputs/runs/calo_cluster_net_v2_saliency/checkpoints/best_model.pt"),
     }
 
     models = {}
@@ -235,8 +257,9 @@ def main():
         model.to(device).eval()
         models[name] = model
         tau_edges[name] = cfg["inference"]["tau_edge"]
-        # Only use tau_node if trained with lambda_node > 0
-        has_node = name == "CaloClusterNet"
+        # Only use tau_node if model has node head and was trained with lambda_node > 0
+        model_type = cfg["model"].get("name", "SimpleEdgeNet")
+        has_node = model_type == "CaloClusterNet"
         lam_node = cfg.get("train", {}).get("lambda_node", 0.0)
         tau_nodes[name] = cfg["inference"].get("tau_node") if (has_node and lam_node > 0) else None
         print(f"Loaded {name}: epoch {ckpt['epoch']}, tau_edge={tau_edges[name]}")
@@ -397,6 +420,7 @@ def main():
                         logits_np = output.cpu().numpy()
                         node_logits_np = None
 
+                    # Clustering: no saliency filtering — keep all hits
                     gnn_labels, _ = reconstruct_clusters(
                         edge_index=edge_index,
                         edge_logits=logits_np,
@@ -404,12 +428,18 @@ def main():
                         energies=d_e,
                         tau_edge=tau_edges[model_name],
                         min_hits=1, min_energy_mev=0.0,
-                        node_logits=node_logits_np,
-                        tau_node=tau_nodes[model_name],
                     )
 
+                    # For saliency models, compute cluster physics from
+                    # salient hits only (clustering unchanged for matching)
+                    sal_mask = None
+                    if node_logits_np is not None and tau_nodes[model_name] is not None:
+                        node_probs = 1.0 / (1.0 + np.exp(-node_logits_np.astype(np.float64)))
+                        sal_mask = node_probs >= tau_nodes[model_name]
+
                     gnn_recs = match_and_compute_residuals(
-                        gnn_labels, mc_truth, d_pos, d_e, d_t, model_name)
+                        gnn_labels, mc_truth, d_pos, d_e, d_t, model_name,
+                        saliency_mask=sal_mask)
                     all_records.extend(gnn_recs)
 
                 n_disk_graphs += 1
@@ -435,7 +465,7 @@ def main():
     print(f"Saved {len(all_records)} cluster residuals to {csv_path}")
 
     # ── Summary statistics ──
-    methods = ["BFS", "SimpleEdgeNet", "CaloClusterNet"]
+    methods = ["BFS", "SimpleEdgeNet", "CaloClusterNet", "CCN-Saliency"]
     summary_lines = []
 
     def add(line):
@@ -529,7 +559,7 @@ def main():
     import matplotlib.pyplot as plt
 
     colors = {"BFS": "coral", "SimpleEdgeNet": "steelblue",
-              "CaloClusterNet": "seagreen"}
+              "CaloClusterNet": "seagreen", "CCN-Saliency": "darkorchid"}
 
     fig, axes = plt.subplots(2, 3, figsize=(18, 11))
     fig.suptitle(f"Cluster-Level Physics Residuals\n"

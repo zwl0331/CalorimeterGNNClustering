@@ -57,7 +57,8 @@ def symmetrize_edge_scores(edge_index, edge_probs):
 
 def reconstruct_clusters(edge_index, edge_logits, n_nodes, energies=None,
                          tau_edge=0.5, min_hits=2, min_energy_mev=10.0,
-                         symmetrize=True, node_logits=None, tau_node=None):
+                         symmetrize=True, node_logits=None, tau_node=None,
+                         saliency_prune=False):
     """Reconstruct clusters from edge predictions.
 
     Parameters
@@ -82,12 +83,16 @@ def reconstruct_clusters(edge_index, edge_logits, n_nodes, energies=None,
         If True, average directed scores before thresholding.
     node_logits : Tensor or ndarray (N,), optional
         Raw node saliency logits from CaloClusterNet. If provided with
-        tau_node, edges where either endpoint has saliency < tau_node are
-        suppressed before thresholding.
+        tau_node, used for bridge suppression and/or post-clustering pruning.
     tau_node : float or None
-        Node saliency threshold. Edges with either endpoint below this
-        threshold have their probability zeroed out. Only used when
-        node_logits is provided.
+        Node saliency threshold. When saliency_prune is False, suppresses
+        edges where BOTH endpoints are non-salient (bridge suppression).
+        When saliency_prune is True, removes non-salient hits from clusters
+        after connected components (post-clustering pruning).
+    saliency_prune : bool
+        If True, after connected components, remove hits with saliency below
+        tau_node from their clusters. This trims stray pileup hits that were
+        absorbed via edges to salient cluster members.
 
     Returns
     -------
@@ -108,13 +113,14 @@ def reconstruct_clusters(edge_index, edge_logits, n_nodes, energies=None,
 
     edge_probs_raw = 1.0 / (1.0 + np.exp(-edge_logits.astype(np.float64)))
 
-    # Node saliency bridge suppression: zero out edges where BOTH endpoints
-    # are non-salient (learned analog of expand_cut). Unlike the old approach
-    # that zeroed edges when EITHER endpoint was non-salient, this only
-    # prevents two non-salient nodes from bridging clusters together.
-    # A non-salient node can still join a cluster via a salient neighbor.
+    # Compute node saliency probabilities (used for bridge suppression or pruning)
+    node_probs = None
     if node_logits is not None and tau_node is not None:
         node_probs = 1.0 / (1.0 + np.exp(-node_logits.astype(np.float64)))
+
+    # Bridge suppression (pre-clustering): zero out edges where BOTH endpoints
+    # are non-salient. Only used when saliency_prune is False.
+    if node_probs is not None and not saliency_prune:
         src, dst = edge_index[0], edge_index[1]
         both_non_salient = (node_probs[src] < tau_node) & (node_probs[dst] < tau_node)
         edge_probs_raw[both_non_salient] = 0.0
@@ -160,6 +166,14 @@ def reconstruct_clusters(edge_index, edge_logits, n_nodes, energies=None,
             mask = cluster_labels == cid
             if energies[mask].sum() < min_energy_mev:
                 cluster_labels[mask] = -1
+
+    # Saliency pruning (post-clustering): remove non-salient hits from clusters.
+    # This trims stray pileup hits that were absorbed into clusters via edges
+    # to salient cluster members — the failure mode that bridge suppression misses.
+    if saliency_prune and node_probs is not None:
+        for i in range(n_nodes):
+            if cluster_labels[i] >= 0 and node_probs[i] < tau_node:
+                cluster_labels[i] = -1
 
     # Relabel to contiguous IDs (0, 1, 2, ...)
     valid_ids = np.unique(cluster_labels[cluster_labels >= 0])
