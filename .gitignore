@@ -30,6 +30,7 @@ outputs/failure_audit/
 outputs/success*/
 outputs/run1b_eval/
 outputs/analysis_for_sophie/
+outputs/cluster_physics_eval/
 checkpoints/*
 !checkpoints/.gitkeep
 
