@@ -92,7 +92,7 @@ source setup_env.sh
 # Smoke test (confirm environment)
 python3 scripts/smoke_test_env.py
 
-# Run all unit tests (unittest, NOT pytest) — 73 tests
+# Run all unit tests (unittest, NOT pytest) — 97 tests
 python3 -m unittest discover -s tests -p "test_*.py" -v
 
 # Build graphs from local ROOT files (CPU node, ~10 min with 500 events/file)
@@ -160,6 +160,9 @@ ROOT files v2 (EventNtuple/ntuple TTree, with ancestorSimIds)
               +-> src/models/calo_cluster_net.py     CaloClusterNet (676K params)
               |     +-> src/models/layers.py         EdgeAwareResBlock (residual MP + gated agg)
               |     +-> src/models/heads.py          NodeSaliencyHead + EdgeClusteringHead
+              +-> src/models/calo_cluster_net_deploy.py
+              |                                      CaloClusterNetDeploy — edge-only inference wrapper
+              |                                      around a trained CaloClusterNet for ONNX export
               +-> src/training/trainer.py            train loop, multi-task loss, early stopping
               +-> src/inference/
                     cluster_reco.py                 symmetrize, threshold, connected components, cleanup

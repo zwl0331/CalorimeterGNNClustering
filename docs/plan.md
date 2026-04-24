@@ -984,6 +984,76 @@ Results in `outputs/cluster_physics_eval_bfs_test/`.
 
 ---
 
+### Task 15: ONNX Export for Offline Integration
+
+**Goal:** Prepare CaloClusterNet for deployment in Mu2e Offline (C++) via ONNX Runtime, following the pattern in Andy Edmonds's draft PR `Mu2e/ArtAnalysis#4` (TrackQuality ONNX integration).
+
+**Scope:** Python-side only — produce a validated `.onnx` file and document its tensor interface. The downstream Offline C++ module (new art producer, SConscript entry, FHiCL config) waits on Andy's PR landing and the central `onnxruntime` muse install.
+
+**Design decision — Option A (deploy-only wrapper):** leave the research code untouched (keep `NodeSaliencyHead`, multi-task loss, `tau_node` plumbing in `src/` and scripts). Add a thin `CaloClusterNetDeploy` wrapper that loads a `CaloClusterNet` checkpoint, bypasses the node head at inference, and returns edge logits as a plain tensor suitable for ONNX export. Rationale: preserves reproducibility of §7.2 saliency experiments; keeps the exported ONNX graph lean (single output `edge_logits`, ~1% fewer FLOPs, no untrained head weights leaking to C++ callers); node-saliency removal is a trivial git-revert away if needed.
+
+#### 15a: Deploy wrapper — edge-only inference ✓
+
+- [x] Add `src/models/calo_cluster_net_deploy.py` — `CaloClusterNetDeploy`
+  - Composition over inheritance: wrapper holds references to `node_encoder`, `edge_encoder`, `mp_blocks`, `edge_head` of a loaded `CaloClusterNet` (no weight copy).
+  - Forward takes `(x, edge_index, edge_attr)` tensors directly (not a PyG `Data` object — `torch.onnx.export` can't trace `Data`)
+  - Forward returns `edge_logits` tensor of shape `(E,)` — no dict, no `node_logits`
+  - Classmethod `from_checkpoint(path)` reads the run-dir `config.yaml`, rebuilds the full `CaloClusterNet`, loads the state_dict, and returns the wrapper in eval mode.
+- [x] Write unit tests `tests/test_calo_cluster_net_deploy.py` — 9 tests, all passing:
+  - Output is a plain tensor (not a dict), dtype float32, shape `(E,)`
+  - Wrapper has no `node_head` attribute
+  - Eval-mode determinism
+  - Dynamic graph sizes (N, E from 1 to 300)
+  - Edge-logit parity with full `CaloClusterNet` on synthetic graphs (`atol=1e-6`)
+  - Submodules are shared by reference, not copied
+  - Loads from the real `v2_stage1` checkpoint and produces finite output
+  - Parity against the full model on real packed val graphs (`data/processed/val.pt`)
+- [x] Ancillary cleanup: the `CaloClusterNetV1` → `CaloClusterNet` rename (commit `78af52e`) had missed the saved run-dir `config.yaml`, five output directories (`outputs/{debug,success,gnn_cluster_display,threshold_sweep,test_eval}_caloclusternetv1`), `outputs/failure_audit/audit_summary.json`, and `outputs/run1b_eval/run1b_results.csv`. All swept — no `CaloClusterNetV1`/`caloclusternetv1` anywhere in the project. Total test count: 97 (was 88 before 15a).
+
+#### 15b: ONNX export script
+
+- [ ] Add `scripts/export_onnx.py`
+  - Load `CaloClusterNetDeploy.from_checkpoint(...)`
+  - Dummy input from one real val disk-graph (already z-score normalised via `data/normalization_stats.pt`)
+  - `torch.onnx.export` with `dynamic_axes = {"x": {0: "N"}, "edge_index": {1: "E"}, "edge_attr": {0: "E"}, "edge_logits": {0: "E"}}`
+  - Opset 17 (good ONNXRuntime coverage, includes scatter ops)
+  - Output `outputs/onnx/calo_cluster_net_v2_stage1.onnx`
+- [ ] Known risk: PyG scatter/gather ops inside `EdgeAwareResBlock` may not trace cleanly. Workaround order:
+  1. Rewrite the offending op with `torch.index_add_` / `torch.gather` (ONNX-native)
+  2. Fall back to `torch.jit.script` of the deploy wrapper, then export
+  3. Document any custom ops needed for the C++ side
+
+#### 15c: Parity validation (PyTorch ↔ ONNX Runtime Python)
+
+- [ ] Add `scripts/validate_onnx.py`
+  - Load packed val graphs (`data/processed/val.pt`)
+  - Run PyTorch inference on first ~500 graphs → collect `edge_logits`
+  - Run ONNX Runtime (Python, CPU) on the same graphs → collect `edge_logits`
+  - Assert max abs diff < 1e-5 across all edges
+  - Confirm dynamic shapes: test graphs with very different `(N, E)` counts
+- [ ] Sanity check: re-run an `evaluate_test.py`-style pass with ONNX in place of PyTorch. Standard metrics (TMR, purity, merges, splits) must match PyTorch to rounding.
+
+#### 15d: Document deployment tensor spec
+
+- [ ] Add `docs/onnx_deployment.md` — the interface contract for the C++ caller
+  - Input tensor names/shapes/dtypes, normalisation recipe (C++ side must z-score using `data/normalization_stats.pt`)
+  - Output tensor name/shape/dtype (`edge_logits (E,) float32`, raw logits — sigmoid + threshold on the C++ side)
+  - Post-processing recipe: symmetrize directed edges → `sigmoid ≥ τ_edge=0.20` → BFS traversal seeded from highest-energy hits with `bfs_expand_cut=10` MeV → cluster cleanup (`min_hits=2`, `min_energy=10` MeV)
+  - Reference implementation: `src/inference/cluster_reco.py` (Python — the C++ port is a downstream task)
+  - This spec is the artefact Andy and Sophie need for the integration meeting
+
+---
+
+### Milestone J — ONNX Deployment Prep (gate before Offline integration)
+
+- [x] `CaloClusterNetDeploy` wrapper implemented with unit tests passing (15a)
+- [ ] ONNX export works on CPU; any PyG workarounds documented (15b)
+- [ ] PyTorch ↔ ONNX Runtime parity verified to 1e-5 on val set (15c)
+- [ ] Deployment tensor spec documented in `docs/onnx_deployment.md` (15d)
+- [ ] Reviewed with Sophie + Andy Edmonds in the ONNX integration meeting (blocked on scheduling); Andy's `Mu2e/ArtAnalysis#4` PR landed and central `onnxruntime` muse install available
+
+---
+
 ## Notes
 
 - **PyG environment:** `pyenv` is a shell function; scripts must `source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh` before calling it. The `mu2einit` alias only works in interactive shells. All required packages confirmed in `ana 2.6.1`.

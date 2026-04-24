@@ -27,7 +27,7 @@ source setup_env.sh
 # Verify environment
 python3 scripts/smoke_test_env.py
 
-# Run unit tests (73 tests)
+# Run unit tests (97 tests)
 python3 -m unittest discover -s tests -p "test_*.py" -v
 ```
 
@@ -184,5 +184,5 @@ See `setup_env.sh` for full activation sequence.
 python3 -m unittest discover -s tests -p "test_*.py" -v
 ```
 
-73 tests covering graph construction, truth labeling, model forward passes,
+97 tests covering graph construction, truth labeling, model forward passes,
 inference pipeline, and postprocessing.
