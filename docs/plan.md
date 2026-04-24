@@ -1010,18 +1010,17 @@ Results in `outputs/cluster_physics_eval_bfs_test/`.
   - Parity against the full model on real packed val graphs (`data/processed/val.pt`)
 - [x] Ancillary cleanup: the `CaloClusterNetV1` → `CaloClusterNet` rename (commit `78af52e`) had missed the saved run-dir `config.yaml`, five output directories (`outputs/{debug,success,gnn_cluster_display,threshold_sweep,test_eval}_caloclusternetv1`), `outputs/failure_audit/audit_summary.json`, and `outputs/run1b_eval/run1b_results.csv`. All swept — no `CaloClusterNetV1`/`caloclusternetv1` anywhere in the project. Total test count: 97 (was 88 before 15a).
 
-#### 15b: ONNX export script
+#### 15b: ONNX export script ✓
 
-- [ ] Add `scripts/export_onnx.py`
-  - Load `CaloClusterNetDeploy.from_checkpoint(...)`
-  - Dummy input from one real val disk-graph (already z-score normalised via `data/normalization_stats.pt`)
+- [x] Add `scripts/export_onnx.py`
+  - Loads `CaloClusterNetDeploy.from_checkpoint(...)`
+  - Dummy input: first non-trivial val disk-graph from `data/processed/val.pt` (already z-score normalised)
   - `torch.onnx.export` with `dynamic_axes = {"x": {0: "N"}, "edge_index": {1: "E"}, "edge_attr": {0: "E"}, "edge_logits": {0: "E"}}`
-  - Opset 17 (good ONNXRuntime coverage, includes scatter ops)
-  - Output `outputs/onnx/calo_cluster_net_v2_stage1.onnx`
-- [ ] Known risk: PyG scatter/gather ops inside `EdgeAwareResBlock` may not trace cleanly. Workaround order:
-  1. Rewrite the offending op with `torch.index_add_` / `torch.gather` (ONNX-native)
-  2. Fall back to `torch.jit.script` of the deploy wrapper, then export
-  3. Document any custom ops needed for the C++ side
+  - Opset 17, `do_constant_folding=True`
+  - Writes `outputs/onnx/calo_cluster_net_v2_stage1.onnx` (2.60 MB). `outputs/onnx/` gitignored.
+- [x] New dependencies: `onnx 1.21.0` (required by `torch.onnx.export`) and `onnxruntime 1.25.0` (for 15c). Installed via `pip install --user` into `/nashome/w/wzhou2/.local/...`, same convention as `torch_geometric`.
+- [x] PyG `scatter` op in `EdgeAwareResBlock` **traces cleanly at opset 17** with PyTorch 2.5.1 — no `torch.index_add_` / `torch.jit.script` workarounds needed. Two cosmetic `TracerWarning`s from `src, dst = edge_index` unpacking in `layers.py:74` and `heads.py:74`; verified by parity test below that they don't affect output correctness.
+- [x] Ad-hoc parity spot check (5 val graphs with (N, E) spanning (3, 6) to (23, 56)): max abs diff PyTorch vs ONNX Runtime = **5.25e-06**. Dynamic axes confirmed working — the same exported graph handled every shape tested. Full parity sweep moves to 15c.
 
 #### 15c: Parity validation (PyTorch ↔ ONNX Runtime Python)
 
@@ -1047,7 +1046,7 @@ Results in `outputs/cluster_physics_eval_bfs_test/`.
 ### Milestone J — ONNX Deployment Prep (gate before Offline integration)
 
 - [x] `CaloClusterNetDeploy` wrapper implemented with unit tests passing (15a)
-- [ ] ONNX export works on CPU; any PyG workarounds documented (15b)
+- [x] ONNX export works on CPU; any PyG workarounds documented (15b) — no workarounds needed at opset 17
 - [ ] PyTorch ↔ ONNX Runtime parity verified to 1e-5 on val set (15c)
 - [ ] Deployment tensor spec documented in `docs/onnx_deployment.md` (15d)
 - [ ] Reviewed with Sophie + Andy Edmonds in the ONNX integration meeting (blocked on scheduling); Andy's `Mu2e/ArtAnalysis#4` PR landed and central `onnxruntime` muse install available

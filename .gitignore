@@ -37,6 +37,7 @@ outputs/cluster_physics_eval_saliency/
 outputs/cluster_physics_eval_saliency_ec/
 outputs/cluster_physics_eval_bfs_traversal/
 outputs/eval_with_expandcut/
+outputs/onnx/
 checkpoints/*
 !checkpoints/.gitkeep
 
