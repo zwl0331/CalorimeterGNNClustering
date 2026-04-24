@@ -2,9 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Attribution rule
+## Git conventions
 
-**Never include Claude authorship or co-authorship in git commits.** Do not add `Co-Authored-By`, `Generated-By`, or any similar trailer referencing Claude, AI, or Anthropic. Commit messages should read as if written by the user. This applies to all commits — new, amended, or rebased.
+Commit-message format, granularity, branching, and what-not-to-commit rules live in `docs/git_conventions.md`. Follow them for every commit: imperative subject ≤72 chars with a type prefix (`feat`/`fix`/`docs`/`refactor`/`perf`/`chore`/`data`/`wip`), one logical change per commit, update `docs/findings.md` in the same commit when overturning a prior finding.
+
+**Attribution (overrides all):** never include Claude authorship or co-authorship in git commits. Do not add `Co-Authored-By`, `Generated-By`, or any similar trailer referencing Claude, AI, or Anthropic. Commit messages should read as if written by the user. Applies to all commits — new, amended, or rebased.
 
 # GNN Calorimeter Clustering
 
@@ -16,7 +18,8 @@ Approach: **edge classification** (SimpleEdgeNet, CaloClusterNet).
 Built with PyTorch Geometric.
 
 Working directory: `/exp/mu2e/app/users/wzhou2/projects/calorimeter/GNN/`
-Plan: `/nashome/w/wzhou2/.claude/plans/wild-leaping-micali.md`
+- Task history and progress: `docs/plan.md`
+- Research findings (results tables, physics insights, conclusions): `docs/findings.md`
 
 ---
 
@@ -202,206 +205,14 @@ ROOT files v2 (EventNtuple/ntuple TTree, with ancestorSimIds)
 - Groups by **calo-entrant ancestor** — the highest ancestor in the Geant4 parent chain that also deposited in the same disk
 - Energy deposits from same-shower SimParticles sum before purity check
 - Requires v2 ROOT files with `calomcsim.ancestorSimIds` branch
-- Ambiguity: 1.7% (vs 4.1% under old truth)
-- Singletons: 48% (vs 53% under old truth, irreducible — see below)
 
-**Remaining singletons (48%) are irreducible pileup:**
-- 66% photons (eBrem from upstream), 25% electrons, 4% neutrons
-- 90.6% deposit 10-50 MeV — single CsI crystal absorbs full shower at this energy
-- 99.1% of eBrem singletons have no parent in the calorimeter (emitted in tracker/transport)
-- Cross-disk correlation not useful; track matching won't help (photons leave no tracks)
-- **Real concern:** pileup singletons bias reconstructed cluster energy by ~10-50 MeV when merged into adjacent showers. BFS has no per-hit energy filter during expansion.
+Truth-definition rationale, ambiguity/singleton statistics, and re-evaluation numbers: `docs/findings.md` §1.
 
 ---
 
-## Model results summary
+## Research findings
 
-### v1 campaign (old SimParticle truth) — historical reference
-
-**Test set (4,000 events, 6,996 disk-graphs, old truth):**
-
-| Metric | BFS | SimpleEdgeNet (t=0.34) | CaloClusterNet (t=0.30) |
-|--------|-----|------------------------|---------------------------|
-| Reco match rate | 94.8% | **95.3%** | 95.2% |
-| Truth match rate | **88.1%** | 87.7% | **88.1%** |
-| Mean purity | 0.9727 | 0.9724 | **0.9731** |
-| Mean completeness | 0.9958 | **0.9983** | 0.9982 |
-| Splits | 385 | **208** | 235 |
-| Merges | 2,940 | 2,878 | **2,808** |
-
-**Calo-entrant truth re-evaluation (val set, 1,500 events, no retraining):**
-
-| Method | Truth | Truth MR | Purity | Merges |
-|--------|-------|----------|--------|--------|
-| BFS | old | 88.4% | 0.9731 | 1,028 |
-| BFS | **new** | **94.7%** | **0.9879** | **527** |
-| CaloClusterNet | old | 88.5% | 0.9734 | 977 |
-| CaloClusterNet | **new** | **94.7%** | **0.9882** | **480** |
-
-**Key finding:** ~50% of old merge errors were artificial (same shower, different SimParticle IDs). Switching to calo-entrant truth halved merges and boosted truth match rate by +6.2% without retraining. This motivated the full v2 rebuild.
-
-v1 outputs archived in `~/gnn_v1_results.tar.gz` (2026-04-05).
-
-### v2 campaign (calo-entrant truth, retrained)
-
-**Data:** 50 v2 ROOT files via FermiGrid, 41,656 graphs (29,143 train / 5,793 val / 6,720 test).
-
-**Training (2026-04-05, A100 GPU):**
-
-| Model | Best Val F1 | Best Epoch | Epochs |
-|-------|-----------|------------|--------|
-| SimpleEdgeNet | 0.966 | 9 | 24 (early stop) |
-| CaloClusterNet (Stage 1) | 0.961 | 13 | 28 (early stop) |
-| CaloClusterNet (Saliency) | 0.962 | 16 | 31 (early stop) |
-
-**CaloClusterNet Saliency training (2026-04-15):** Resumed from Stage 1, retrained with `lambda_node=0.3` using new multi-hit cluster member labels (y_node=1 for hits in clusters with >=2 hits, y_node=0 for singletons/ambiguous). Val node F1 = 0.888 (P=1.000, R=0.800) — perfect precision means it never mislabels a singleton as salient. Checkpoint: `outputs/runs/calo_cluster_net_v2_saliency/`.
-
-**Threshold tuning (val set):** SimpleEdgeNet τ_edge=0.26 (F1=0.9734), CaloClusterNet τ_edge=0.20 (F1=0.9748). Frozen in configs.
-
-**Test set (4,000 events, 6,996 disk-graphs, calo-entrant truth):**
-
-| Metric | BFS | SimpleEdgeNet (τ=0.26) | CaloClusterNet (τ=0.20) |
-|--------|-----|------------------------|---------------------------|
-| Reco match rate | 96.5% | **97.1%** | **97.1%** |
-| Truth match rate | **94.3%** | 94.0% | 94.2% |
-| Mean purity | 0.9877 | 0.9875 | **0.9877** |
-| Mean completeness | 0.9951 | 0.9981 | **0.9982** |
-| Splits | 467 | 238 | **214** |
-| Merges | 1,533 | 1,480 | **1,454** |
-
-**v2 vs v1 improvement:** Truth match +6.2% (88→94%), purity +0.015, merges halved (2,940→1,454). Both GNNs beat BFS on reco match rate, completeness, splits, and merges.
-
-**Checkpoints:** `outputs/runs/simple_edge_net_v2/`, `outputs/runs/calo_cluster_net_v2_stage1/`, `outputs/runs/calo_cluster_net_v2_saliency/`.
-
-### Run1B campaign (no magnetic field, calo-entrant truth)
-
-**Goal:** Test generalization of MDC2025-trained models on the no-field scenario (electrons travel straight).
-
-**Data:** 20 Run1B v2 ROOT files (reprocessed via FermiGrid, cluster `27583402`), 405 MB total, ~40K events/file. `FlateMinus-KL` dataset — no pileup, no B-field.
-
-**Evaluation (10,000 events, 8,641 disk-graphs, calo-entrant truth):**
-
-| Metric | BFS | SimpleEdgeNet (τ=0.26) | CaloClusterNet (τ=0.20) |
-|--------|-----|------------------------|---------------------------|
-| Reco match rate | 99.6% | **99.7%** | **99.7%** |
-| Truth match rate | **99.9%** | **99.9%** | **99.9%** |
-| Mean purity | 0.9997 | 0.9997 | 0.9997 |
-| Mean completeness | 0.9991 | **0.9993** | **0.9993** |
-| Splits | 38 | 29 | **28** |
-| Merges | 5 | 5 | 5 |
-
-**Key findings:**
-- Near-perfect performance from all methods — no-field, no-pileup scenario is trivially easy.
-- Only 12 singletons (0.1%) vs 48% in MDC2025 — confirms singletons are pileup-driven.
-- Only 5 merges vs 1,454 in MDC2025. ~1 truth cluster per disk vs ~5 in MDC2025.
-- GNNs generalize perfectly to no-field data despite being trained on with-field data.
-- MDC2025 with pileup remains the meaningful benchmark.
-
-**Script:** `scripts/evaluate_run1b.py`. **Results:** `outputs/run1b_eval/`.
-
-### Cluster-level physics evaluation (downstream quantities)
-
-**Goal:** Evaluate not just hit grouping quality, but the downstream-relevant quantities that the reconstruction chain actually consumes: total energy, centroid position, and seed hit time.
-
-**Method:** For each matched reco↔truth cluster pair (greedy energy-weighted matching, purity > 0.5, completeness > 0.5), compute residuals:
-- Energy residual: dE = E_reco - E_truth
-- Centroid displacement: dr = Euclidean distance between energy-weighted centroids (x-y)
-- Time residual: dt = t_reco - t_truth (seed hit = most energetic, matching Offline convention)
-
-**Val set (3,500 events, 6,058 disk-graphs, calo-entrant truth):**
-
-| Metric | BFS | SimpleEdgeNet (τ=0.26) | CaloClusterNet (τ=0.20) |
-|--------|-----|------------------------|---------------------------|
-| Matched clusters | 32,024 | 31,264 | 31,327 |
-| Mean abs(dE) (MeV) | 0.513 | 0.457 | **0.430** |
-| Std dE (MeV) | 2.469 | 2.400 | **2.239** |
-| Mean E_reco/E_truth | 1.0123 | 1.0161 | 1.0157 |
-| Mean dr (mm) | 1.769 | 1.538 | **1.443** |
-| Mean abs(dt) (ns) | 0.001 | 0.000 | 0.000 |
-| abs(dE) > 10 MeV | 631 (2.0%) | 477 (1.5%) | **435 (1.4%)** |
-| dr > 10 mm | 1,519 (4.7%) | 1,303 (4.2%) | **1,261 (4.0%)** |
-
-**Energy-binned mean abs(dE) (MeV):**
-
-| Bin | BFS | SimpleEdgeNet | CaloClusterNet |
-|-----|-----|---------------|----------------|
-| < 50 MeV | 0.523 | 0.470 | **0.441** |
-| 50-200 MeV | 0.422 | 0.342 | **0.325** |
-
-**Multiplicity-binned mean abs(dE) (MeV):**
-
-| Hits | BFS | SimpleEdgeNet | CaloClusterNet |
-|------|-----|---------------|----------------|
-| 1 hit | 0.352 | 0.354 | 0.355 |
-| 2-3 hits | 0.653 | 0.553 | **0.508** |
-| 4+ hits | 0.629 | 0.496 | **0.433** |
-
-**Key findings (all clusters):**
-- CaloClusterNet wins on every metric when including all clusters. GNNs produce ~16% lower energy error and ~18% lower centroid displacement than BFS.
-- Single-hit clusters are identical across methods. Gains come from multi-hit clusters where merge/split errors matter.
-- Time residuals are near-zero for all methods — the seed hit (most energetic) is almost always the same.
-- >90% of matched clusters have zero residuals (identical hit lists). Differences are in the ~2-5% tail.
-
-**Downstream-relevant clusters (E_reco >= 50 MeV, ~3,200 per method):**
-
-| Metric | BFS | SimpleEdgeNet | CaloClusterNet | CCN-Saliency |
-|--------|-----|---------------|----------------|--------------|
-| Mean abs(dE) (MeV) | 0.848 | 1.144 | 0.900 | **0.825** |
-| Mean dr (mm) | 1.652 | 2.298 | 1.837 | **1.616** |
-| abs(dE) > 10 MeV | 3.2% | 4.4% | 3.4% | **3.0%** |
-| Promoted above 50 MeV by merging | 82 (2.6%) | 126 (3.9%) | 99 (3.1%) | **86 (2.7%)** |
-
-**CCN-Saliency beats BFS on all downstream metrics** with zero trade-off on standard clustering metrics. The approach: clustering is unchanged (same as CaloClusterNet — identical TMR, purity, completeness, splits, merges). Only the cluster physics computation (energy, centroid, time) is recomputed using salient hits only (node saliency score >= τ_node=0.5). This excludes stray pileup singletons (~10-30 MeV) that BFS's `ExpandCut` naturally rejects but GNNs absorb.
-
-The CCN-Saliency model's node head (trained with multi-hit cluster member labels, node F1=0.888, P=1.0, R=0.8) identifies which hits are real shower members vs stray pileup. The saliency reweighting acts as a post-clustering correction, not a clustering change.
-
-**BFS-style traversal on GNN edges (best approach):** Replace connected components with BFS traversal that mirrors Offline's ClusterFinder. Low-energy hits (E < 10 MeV) join clusters but don't expand to neighbors — preventing stray pileup from bridging between clusters while keeping all hits as cluster members. Uses `bfs_expand_cut=10` parameter in `reconstruct_clusters()`. No retraining needed.
-
-**Test set results with BFS traversal (4,000 events, 6,720 disk-graphs, run once):**
-
-Downstream (E_reco >= 50 MeV):
-
-| Metric | BFS | SEN | SEN+BFS10 | CCN | **CCN+BFS10** |
-|--------|-----|-----|-----------|-----|---------------|
-| Mean abs(dE) (MeV) | 0.801 | 1.019 | 0.720 | 0.863 | **0.642** |
-| Std dE (MeV) | 4.049 | 4.766 | 3.792 | 4.269 | **3.559** |
-| 95th abs(dE) (MeV) | 3.169 | 4.639 | 2.759 | 3.429 | **2.236** |
-| Mean dr (mm) | 1.472 | 2.079 | 1.401 | 1.983 | **1.403** |
-| 95th dr (mm) | 3.444 | 4.982 | 2.672 | 3.686 | **1.894** |
-| abs(dE) > 10 MeV | 3.2% | 3.9% | 2.8% | 3.4% | **2.5%** |
-
-All clusters:
-
-| Metric | BFS | SEN | SEN+BFS10 | CCN | **CCN+BFS10** |
-|--------|-----|-----|-----------|-----|---------------|
-| Mean abs(dE) (MeV) | 0.523 | 0.453 | 0.430 | 0.435 | **0.419** |
-| Std dE (MeV) | 2.462 | 2.336 | 2.131 | 2.227 | **2.086** |
-| 95th abs(dE) (MeV) | 3.208 | 2.659 | 2.705 | 2.565 | **2.611** |
-| Mean dr (mm) | 1.816 | 1.548 | 1.509 | 1.516 | **1.486** |
-
-Signal region (95-110 MeV, 658 clusters):
-
-| Metric | BFS | SEN | SEN+BFS10 | CCN | **CCN+BFS10** |
-|--------|-----|-----|-----------|-----|---------------|
-| Mean abs(dE) (MeV) | 0.243 | 0.297 | 0.231 | 0.236 | **0.202** |
-| Mean dr (mm) | 0.419 | 0.570 | 0.471 | 0.502 | **0.420** |
-
-**CCN+BFS10 wins every metric** on the independent test set — downstream, all-cluster, and signal region.
-
-**Script:** `scripts/evaluate_cluster_physics.py`. **Results:** `outputs/cluster_physics_eval_bfs_test/`.
-
----
-
-## Failure audit findings (v2 campaign)
-
-**v2 audit (CaloClusterNet, τ=0.20, val set, 5,793 graphs):**
-- Total merges: 1,512 (down from 2,289 in v1)
-- 75% of merges caused by ≤2 bridge edges; median bridge score 0.59 (threshold 0.20)
-- 93.8% of merges involve at least one singleton truth cluster
-- Precision 0.957 (up from 0.882 in v1), Recall 0.993
-- Remaining merges are irreducible: physically indistinguishable singletons adjacent to clusters
-
-Full audit in `outputs/failure_audit/audit_summary.json`.
+Experimental results, physics insights, and conclusions (v1 campaign, v2 campaign, Run1B generalization, cluster-level physics evaluation, failure audits, fringe-hit cleanup including the CCN+BFS10 result): `docs/findings.md`.
 
 ---
 
