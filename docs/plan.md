@@ -422,8 +422,8 @@ v1 CaloClusterNet training numbers: see `docs/findings.md` §3.1.
 
 #### 9c: Threshold Tuning (Val Set) ✓
 
-- [x] Sweep τ_edge on val set for Stage 1 (no τ_node — node head untrained in Stage 1); frozen τ_edge = **0.30**. Results: `outputs/threshold_sweep_caloclusternetv1_stage1/`
-- [x] Sweep τ_edge on val set for Stage 2 with τ_node=0.5 (trained node head); τ_node=0.5 gave marginal merge reduction; not worth the complexity. Results: `outputs/threshold_sweep_caloclusternetv1_stage2/`
+- [x] Sweep τ_edge on val set for Stage 1 (no τ_node — node head untrained in Stage 1); frozen τ_edge = **0.30**. Results: `outputs/threshold_sweep_caloclusternet_stage1/`
+- [x] Sweep τ_edge on val set for Stage 2 with τ_node=0.5 (trained node head); τ_node=0.5 gave marginal merge reduction; not worth the complexity. Results: `outputs/threshold_sweep_caloclusternet_stage2/`
 - [x] Frozen τ_edge = 0.30 in `configs/calo_cluster_net.yaml`
 
 v1 threshold tuning numbers: see `docs/findings.md` §3.2.
@@ -434,14 +434,14 @@ v1 threshold tuning numbers: see `docs/findings.md` §3.2.
 
 - [x] Run once: CaloClusterNet Stage 1 (τ_edge=0.30) vs BFS, both vs MC truth
 - [x] 4,000 events (500/file × 8 files), 6,996 disk-graphs
-- [x] Results: `outputs/test_eval_caloclusternetv1/`
+- [x] Results: `outputs/test_eval_caloclusternet/`
 
 v1 CaloClusterNet test-set results: see `docs/findings.md` §3.3. CaloClusterNet gave marginal improvements over SimpleEdgeNet (fewest merges, highest purity); differences within noise — the bottleneck was the truth definition, not model capacity, which motivated Task 11.
 
 #### 9e: Event Displays ✓
 
-- [x] 6 normal event displays: `outputs/gnn_cluster_display_caloclusternetv1/`
-- [x] 6 worst failure cases from 200 scanned events: `outputs/debug_caloclusternetv1/`
+- [x] 6 normal event displays: `outputs/gnn_cluster_display_caloclusternet/`
+- [x] 6 worst failure cases from 200 scanned events: `outputs/debug_caloclusternet/`
 
 ---
 
@@ -663,7 +663,7 @@ v2 training numbers (best val F1, epochs): see `docs/findings.md` §4.1.
 
 #### Step 7: Threshold tuning (val set) ✓
 - [x] Sweep τ_edge for SimpleEdgeNet → frozen **τ=0.26**. Results: `outputs/threshold_sweep_simpleedgenet/`
-- [x] Sweep τ_edge for CaloClusterNet → frozen **τ=0.20**. Results: `outputs/threshold_sweep_caloclusternetv1/`
+- [x] Sweep τ_edge for CaloClusterNet → frozen **τ=0.20**. Results: `outputs/threshold_sweep_caloclusternet/`
 - [x] Frozen in `configs/default.yaml` (τ=0.26) and `configs/calo_cluster_net.yaml` (τ=0.20)
 
 v2 threshold-tuning numbers: see `docs/findings.md` §4.2.
@@ -671,14 +671,14 @@ v2 threshold-tuning numbers: see `docs/findings.md` §4.2.
 #### Step 8: Test set evaluation (run ONCE) ✓
 - [x] Evaluated both GNNs + BFS on test set: 4,000 events (500/file × 8 files), 6,996 disk-graphs
 - [x] SimpleEdgeNet results: `outputs/test_eval_simpleedgenet/`
-- [x] CaloClusterNet results: `outputs/test_eval_caloclusternetv1/`
+- [x] CaloClusterNet results: `outputs/test_eval_caloclusternet/`
 
 v2 test-set results and v2-vs-v1 improvement (TMR +6.2%, merges halved): see `docs/findings.md` §4.3–4.4.
 
 #### Step 9: Visualization and analysis ✓
-- [x] 3-panel event displays (6 each): `outputs/gnn_cluster_display_simpleedgenet/`, `outputs/gnn_cluster_display_caloclusternetv1/`
-- [x] Failure case displays (6 each): `outputs/debug_simpleedgenet/`, `outputs/debug_caloclusternetv1/`
-- [x] Success case displays (6 each): `outputs/success_simpleedgenet/`, `outputs/success_caloclusternetv1/`
+- [x] 3-panel event displays (6 each): `outputs/gnn_cluster_display_simpleedgenet/`, `outputs/gnn_cluster_display_caloclusternet/`
+- [x] Failure case displays (6 each): `outputs/debug_simpleedgenet/`, `outputs/debug_caloclusternet/`
+- [x] Success case displays (6 each): `outputs/success_simpleedgenet/`, `outputs/success_caloclusternet/`
 - [x] Training curve plots in each run dir (`training_curves.png`)
 - [x] Failure audit (CaloClusterNet τ=0.20, val set, 5,752 graphs): `outputs/failure_audit/audit_summary.json`
 
