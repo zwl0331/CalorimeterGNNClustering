@@ -160,8 +160,9 @@ def match_and_compute_residuals(pred_labels, truth_labels, positions,
 
             dE = rp["energy"] - tp["energy"]
             E_ratio = rp["energy"] / tp["energy"] if tp["energy"] > 0 else 0
-            dr = np.sqrt((rp["centroid_x"] - tp["centroid_x"])**2 +
-                         (rp["centroid_y"] - tp["centroid_y"])**2)
+            dx = rp["centroid_x"] - tp["centroid_x"]
+            dy = rp["centroid_y"] - tp["centroid_y"]
+            dr = np.sqrt(dx**2 + dy**2)
             dt = rp["time"] - tp["time"]
 
             records.append({
@@ -172,6 +173,8 @@ def match_and_compute_residuals(pred_labels, truth_labels, positions,
                 "reco_nhits": rp["n_hits"],
                 "dE": dE,
                 "E_ratio": E_ratio,
+                "dx": dx,
+                "dy": dy,
                 "dr": dr,
                 "dt": dt,
                 "purity": pur,
@@ -463,7 +466,7 @@ def main():
     # ── Save per-cluster CSV ──
     csv_path = out_dir / "cluster_residuals.csv"
     fieldnames = ["method", "truth_energy", "truth_nhits", "reco_energy",
-                  "reco_nhits", "dE", "E_ratio", "dr", "dt",
+                  "reco_nhits", "dE", "E_ratio", "dx", "dy", "dr", "dt",
                   "purity", "completeness"]
     with open(csv_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -499,6 +502,8 @@ def main():
             continue
 
         dE = np.array([r["dE"] for r in recs])
+        dx = np.array([r["dx"] for r in recs])
+        dy = np.array([r["dy"] for r in recs])
         dr = np.array([r["dr"] for r in recs])
         dt = np.array([r["dt"] for r in recs])
         E_ratio = np.array([r["E_ratio"] for r in recs])
@@ -514,6 +519,10 @@ def main():
             f"{'':>10} {np.percentile(np.abs(dE), 90):>10.3f}")
         add(f"  {'E_reco/E_truth':<25} {E_ratio.mean():>10.4f} "
             f"{np.median(E_ratio):>10.4f} {E_ratio.std():>10.4f} {'':>10}")
+        add(f"  {'dx (mm)':<25} {dx.mean():>10.3f} {np.median(dx):>10.3f} "
+            f"{dx.std():>10.3f} {np.percentile(np.abs(dx), 90):>10.3f}")
+        add(f"  {'dy (mm)':<25} {dy.mean():>10.3f} {np.median(dy):>10.3f} "
+            f"{dy.std():>10.3f} {np.percentile(np.abs(dy), 90):>10.3f}")
         add(f"  {'dr (mm)':<25} {dr.mean():>10.3f} {np.median(dr):>10.3f} "
             f"{dr.std():>10.3f} {np.percentile(dr, 90):>10.3f}")
         add(f"  {'dt (ns)':<25} {dt.mean():>10.3f} {np.median(dt):>10.3f} "
@@ -571,14 +580,14 @@ def main():
     colors = {"BFS": "coral", "SimpleEdgeNet": "steelblue", "SEN+BFS10": "royalblue",
               "CaloClusterNet": "seagreen", "CCN+BFS10": "darkgreen"}
 
-    fig, axes = plt.subplots(2, 3, figsize=(18, 11))
+    fig, axes = plt.subplots(3, 3, figsize=(18, 16))
     fig.suptitle(f"Cluster-Level Physics Residuals\n"
                  f"{n_disk_graphs} disk-graphs, {len(root_files)} files",
                  fontsize=14, fontweight="bold")
 
-    # ── Row 1: residual distributions (non-zero only, log y-scale) ──
+    # ── Row 1: residual distributions (log y-scale) ──
 
-    # 1. dE histogram — all values, log scale, fine bins
+    # 1. dE histogram
     ax = axes[0, 0]
     bins_dE = np.linspace(-50, 50, 200)
     for method in methods:
@@ -596,8 +605,45 @@ def main():
     ax.grid(alpha=0.3)
     ax.axvline(0, color="black", linestyle="--", alpha=0.3)
 
-    # 2. dr histogram — all values, log scale, fine bins
+    # 2. dx histogram
     ax = axes[0, 1]
+    bins_dxy = np.linspace(-80, 80, 200)
+    for method in methods:
+        recs = [r for r in all_records if r["method"] == method]
+        if recs:
+            vals = np.array([r["dx"] for r in recs])
+            ax.hist(vals, bins=bins_dxy, alpha=0.5,
+                    label=f"{method} (n={len(vals):,})",
+                    color=colors[method], edgecolor="none")
+    ax.set_yscale("log")
+    ax.set_xlabel("dx = x_reco − x_truth (mm)")
+    ax.set_ylabel("Clusters (log scale)")
+    ax.set_title("Centroid X Residual")
+    ax.legend(fontsize=8)
+    ax.grid(alpha=0.3)
+    ax.axvline(0, color="black", linestyle="--", alpha=0.3)
+
+    # 3. dy histogram
+    ax = axes[0, 2]
+    for method in methods:
+        recs = [r for r in all_records if r["method"] == method]
+        if recs:
+            vals = np.array([r["dy"] for r in recs])
+            ax.hist(vals, bins=bins_dxy, alpha=0.5,
+                    label=f"{method} (n={len(vals):,})",
+                    color=colors[method], edgecolor="none")
+    ax.set_yscale("log")
+    ax.set_xlabel("dy = y_reco − y_truth (mm)")
+    ax.set_ylabel("Clusters (log scale)")
+    ax.set_title("Centroid Y Residual")
+    ax.legend(fontsize=8)
+    ax.grid(alpha=0.3)
+    ax.axvline(0, color="black", linestyle="--", alpha=0.3)
+
+    # ── Row 2: dr, dt, and summary bar chart ──
+
+    # 4. dr histogram
+    ax = axes[1, 0]
     bins_dr = np.linspace(0, 80, 200)
     for method in methods:
         recs = [r for r in all_records if r["method"] == method]
@@ -609,12 +655,12 @@ def main():
     ax.set_yscale("log")
     ax.set_xlabel("Centroid displacement dr (mm)")
     ax.set_ylabel("Clusters (log scale)")
-    ax.set_title("Centroid Displacement")
+    ax.set_title("Centroid Displacement (combined)")
     ax.legend(fontsize=8)
     ax.grid(alpha=0.3)
 
-    # 3. dt histogram — all values, log scale, fine bins
-    ax = axes[0, 2]
+    # 5. dt histogram
+    ax = axes[1, 1]
     bins_dt = np.linspace(-10, 10, 200)
     for method in methods:
         recs = [r for r in all_records if r["method"] == method]
@@ -631,10 +677,38 @@ def main():
     ax.grid(alpha=0.3)
     ax.axvline(0, color="black", linestyle="--", alpha=0.3)
 
-    # ── Row 2: energy-dependent residuals + summary ──
+    # 6. Summary comparison bar chart
+    ax = axes[1, 2]
+    metrics_labels = ["Mean |dE|\n(MeV)", "Mean |dx|\n(mm)", "Mean |dy|\n(mm)",
+                      "Mean dr\n(mm)", "Mean |dt|\n(ns)"]
+    x = np.arange(len(metrics_labels))
+    w = 0.15
+    for mi, method in enumerate(methods):
+        recs = [r for r in all_records if r["method"] == method]
+        if not recs:
+            continue
+        dE_v = np.abs(np.array([r["dE"] for r in recs]))
+        dx_v = np.abs(np.array([r["dx"] for r in recs]))
+        dy_v = np.abs(np.array([r["dy"] for r in recs]))
+        dr_v = np.array([r["dr"] for r in recs])
+        dt_v = np.abs(np.array([r["dt"] for r in recs]))
+        vals = [dE_v.mean(), dx_v.mean(), dy_v.mean(), dr_v.mean(), dt_v.mean()]
+        offset = (mi - 2) * w
+        bars = ax.bar(x + offset, vals, w, label=method,
+                      color=colors[method], alpha=0.8)
+        for i, v in enumerate(vals):
+            ax.text(x[i] + offset, v + max(vals) * 0.02, f"{v:.2f}",
+                    ha="center", fontsize=6)
+    ax.set_xticks(x)
+    ax.set_xticklabels(metrics_labels, fontsize=9)
+    ax.set_title("Summary Comparison")
+    ax.legend(fontsize=7)
+    ax.grid(alpha=0.3, axis="y")
 
-    # 4. |dE| vs truth energy (binned means)
-    ax = axes[1, 0]
+    # ── Row 3: energy-dependent residuals ──
+
+    # 7. |dE| vs truth energy (binned means)
+    ax = axes[2, 0]
     for method in methods:
         recs = [r for r in all_records if r["method"] == method]
         if not recs:
@@ -656,8 +730,8 @@ def main():
     ax.legend(fontsize=9)
     ax.grid(alpha=0.3)
 
-    # 5. dr vs truth energy (binned means)
-    ax = axes[1, 1]
+    # 8. dr vs truth energy (binned means)
+    ax = axes[2, 1]
     for method in methods:
         recs = [r for r in all_records if r["method"] == method]
         if not recs:
@@ -679,33 +753,33 @@ def main():
     ax.legend(fontsize=9)
     ax.grid(alpha=0.3)
 
-    # 6. Summary comparison bar chart
-    ax = axes[1, 2]
-    metrics_labels = ["Mean |dE|\n(MeV)", "Mean dr\n(mm)", "Mean |dt|\n(ns)",
-                      "|dE|>10MeV\n(%)", "dr>10mm\n(%)"]
+    # 9. Quality cut fractions bar chart
+    ax = axes[2, 2]
+    metrics_labels = ["|dE|>10MeV\n(%)", "dr>10mm\n(%)", "|dx|>10mm\n(%)",
+                      "|dy|>10mm\n(%)"]
     x = np.arange(len(metrics_labels))
-    w = 0.25
+    w = 0.15
     for mi, method in enumerate(methods):
         recs = [r for r in all_records if r["method"] == method]
         if not recs:
             continue
-        dE = np.abs(np.array([r["dE"] for r in recs]))
-        dr_v = np.array([r["dr"] for r in recs])
-        dt_v = np.abs(np.array([r["dt"] for r in recs]))
         n = len(recs)
-        vals = [dE.mean(), dr_v.mean(), dt_v.mean(),
-                (dE > 10).sum() / n * 100, (dr_v > 10).sum() / n * 100]
-        offset = (mi - 1) * w
-        bars = ax.bar(x + offset, vals, w, label=method,
-                      color=colors[method], alpha=0.8)
+        dE_v = np.abs(np.array([r["dE"] for r in recs]))
+        dr_v = np.array([r["dr"] for r in recs])
+        dx_v = np.abs(np.array([r["dx"] for r in recs]))
+        dy_v = np.abs(np.array([r["dy"] for r in recs]))
+        vals = [(dE_v > 10).sum() / n * 100, (dr_v > 10).sum() / n * 100,
+                (dx_v > 10).sum() / n * 100, (dy_v > 10).sum() / n * 100]
+        offset = (mi - 2) * w
+        ax.bar(x + offset, vals, w, label=method,
+               color=colors[method], alpha=0.8)
         for i, v in enumerate(vals):
-            fmt = f"{v:.2f}" if i < 3 else f"{v:.1f}%"
-            ax.text(x[i] + offset, v + max(vals) * 0.02, fmt,
-                    ha="center", fontsize=7)
+            ax.text(x[i] + offset, v + max(vals) * 0.02, f"{v:.1f}%",
+                    ha="center", fontsize=6)
     ax.set_xticks(x)
     ax.set_xticklabels(metrics_labels, fontsize=9)
-    ax.set_title("Summary Comparison")
-    ax.legend(fontsize=9)
+    ax.set_title("Quality Cut Fractions")
+    ax.legend(fontsize=7)
     ax.grid(alpha=0.3, axis="y")
 
     plt.tight_layout()
