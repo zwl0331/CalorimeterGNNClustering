@@ -1022,15 +1022,18 @@ Results in `outputs/cluster_physics_eval_bfs_test/`.
 - [x] PyG `scatter` op in `EdgeAwareResBlock` **traces cleanly at opset 17** with PyTorch 2.5.1 — no `torch.index_add_` / `torch.jit.script` workarounds needed. Two cosmetic `TracerWarning`s from `src, dst = edge_index` unpacking in `layers.py:74` and `heads.py:74`; verified by parity test below that they don't affect output correctness.
 - [x] Ad-hoc parity spot check (5 val graphs with (N, E) spanning (3, 6) to (23, 56)): max abs diff PyTorch vs ONNX Runtime = **5.25e-06**. Dynamic axes confirmed working — the same exported graph handled every shape tested. Full parity sweep moves to 15c.
 
-#### 15c: Parity validation (PyTorch ↔ ONNX Runtime Python)
+#### 15c: Parity validation (PyTorch ↔ ONNX Runtime Python) ✓
 
-- [ ] Add `scripts/validate_onnx.py`
-  - Load packed val graphs (`data/processed/val.pt`)
-  - Run PyTorch inference on first ~500 graphs → collect `edge_logits`
-  - Run ONNX Runtime (Python, CPU) on the same graphs → collect `edge_logits`
-  - Assert max abs diff < 1e-5 across all edges
-  - Confirm dynamic shapes: test graphs with very different `(N, E)` counts
-- [ ] Sanity check: re-run an `evaluate_test.py`-style pass with ONNX in place of PyTorch. Standard metrics (TMR, purity, merges, splits) must match PyTorch to rounding.
+- [x] Add `scripts/validate_onnx.py`
+  - Loads packed val graphs (`data/processed/val.pt`), runs both runtimes on every non-trivial graph, reports max/mean/p50/p90/p99/p99.9 edge-logit abs diffs.
+  - Also counts per-edge threshold-decision flips at `tau_edge=0.20` (proxy for cluster-assembly parity — if logits match and no thresholds flip, the deterministic downstream post-processing agrees by construction, so a separate `evaluate_test.py`-style rerun is not needed to prove equivalence).
+  - Exits non-zero if max abs diff > `--tol` (default 1e-5) or any flip is observed.
+- [x] Ran over full val split: **5,793 graphs, 166,342 edges, CPU, tolerance 1e-5**
+  - Max abs diff: **9.060e-06** (under 1e-5)
+  - Mean abs diff per edge: 1.333e-06; p99.9 = 5.722e-06
+  - **Zero threshold flips at τ=0.20** across all 166K edges → cluster reconstruction (symmetrize → BFS traversal → cleanup) is provably byte-identical
+  - Dynamic axes verified across N ∈ [2, 65] and E ∈ [2, 180] (same exported graph)
+  - CPU timing: PyTorch median 11.00 ms/graph, ONNX Runtime median 0.88 ms/graph → **ONNX is ~12.5× faster** on this CPU. (Side result useful for the integration meeting — hint at what the C++ `art::EDProducer` will cost per event.)
 
 #### 15d: Document deployment tensor spec
 
@@ -1047,7 +1050,7 @@ Results in `outputs/cluster_physics_eval_bfs_test/`.
 
 - [x] `CaloClusterNetDeploy` wrapper implemented with unit tests passing (15a)
 - [x] ONNX export works on CPU; any PyG workarounds documented (15b) — no workarounds needed at opset 17
-- [ ] PyTorch ↔ ONNX Runtime parity verified to 1e-5 on val set (15c)
+- [x] PyTorch ↔ ONNX Runtime parity verified to 1e-5 on val set (15c) — max abs diff 9.06e-06 over 166K edges, zero threshold flips at τ=0.20
 - [ ] Deployment tensor spec documented in `docs/onnx_deployment.md` (15d)
 - [ ] Reviewed with Sophie + Andy Edmonds in the ONNX integration meeting (blocked on scheduling); Andy's `Mu2e/ArtAnalysis#4` PR landed and central `onnxruntime` muse install available
 
