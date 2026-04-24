@@ -1035,14 +1035,16 @@ Results in `outputs/cluster_physics_eval_bfs_test/`.
   - Dynamic axes verified across N ∈ [2, 65] and E ∈ [2, 180] (same exported graph)
   - CPU timing: PyTorch median 11.00 ms/graph, ONNX Runtime median 0.88 ms/graph → **ONNX is ~12.5× faster** on this CPU. (Side result useful for the integration meeting — hint at what the C++ `art::EDProducer` will cost per event.)
 
-#### 15d: Document deployment tensor spec
+#### 15d: Document deployment tensor spec ✓
 
-- [ ] Add `docs/onnx_deployment.md` — the interface contract for the C++ caller
-  - Input tensor names/shapes/dtypes, normalisation recipe (C++ side must z-score using `data/normalization_stats.pt`)
-  - Output tensor name/shape/dtype (`edge_logits (E,) float32`, raw logits — sigmoid + threshold on the C++ side)
-  - Post-processing recipe: symmetrize directed edges → `sigmoid ≥ τ_edge=0.20` → BFS traversal seeded from highest-energy hits with `bfs_expand_cut=10` MeV → cluster cleanup (`min_hits=2`, `min_energy=10` MeV)
-  - Reference implementation: `src/inference/cluster_reco.py` (Python — the C++ port is a downstream task)
-  - This spec is the artefact Andy and Sophie need for the integration meeting
+- [x] Add `docs/onnx_deployment.md` — the interface contract for the C++ caller. Seven sections:
+  1. Model artifact (path, opset 17, regenerate/validate commands)
+  2. Tensor interface (exact input/output names, shapes, dtypes)
+  3. Normalisation — the six node and eight edge z-score stats with their exact mean/std values from the train split, so the C++ side doesn't need to open the `.pt` blob
+  4. Graph construction (upstream) — one graph per disk, r_max=210mm, dt_max=25ns, k_min=3, k_max=20, directed edges; notes on whether to reuse Offline `cal.neighbors()`/`nextNeighbors()` vs. porting the cKDTree path
+  5. Cluster assembly (downstream) — CCN+BFS10 recipe as pseudocode: sigmoid → symmetrise → threshold `τ=0.20` → BFS traversal seeded from highest-E hits with `bfs_expand_cut=10 MeV` → cleanup `min_hits=2`, `min_energy_mev=10`
+  6. Parity proof — the 15c numbers (9.06e-06 max diff, zero threshold flips on 166K edges, 12.5× CPU speedup)
+  7. Open items for the integration meeting — muse onnxruntime status, module boundary decision, neighbour-list strategy, stats sidecar format, version-string policy
 
 ---
 
@@ -1051,7 +1053,7 @@ Results in `outputs/cluster_physics_eval_bfs_test/`.
 - [x] `CaloClusterNetDeploy` wrapper implemented with unit tests passing (15a)
 - [x] ONNX export works on CPU; any PyG workarounds documented (15b) — no workarounds needed at opset 17
 - [x] PyTorch ↔ ONNX Runtime parity verified to 1e-5 on val set (15c) — max abs diff 9.06e-06 over 166K edges, zero threshold flips at τ=0.20
-- [ ] Deployment tensor spec documented in `docs/onnx_deployment.md` (15d)
+- [x] Deployment tensor spec documented in `docs/onnx_deployment.md` (15d)
 - [ ] Reviewed with Sophie + Andy Edmonds in the ONNX integration meeting (blocked on scheduling); Andy's `Mu2e/ArtAnalysis#4` PR landed and central `onnxruntime` muse install available
 
 ---
