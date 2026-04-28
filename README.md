@@ -18,6 +18,15 @@ Two models are implemented:
 | **SimpleEdgeNet** | 215K | Lightweight baseline: MLP encoders + sum message passing + edge MLP head |
 | **CaloClusterNet** | 676K | Residual MP blocks with gated aggregation, global context, node saliency + edge clustering heads |
 
+## Current recommended path
+
+For follow-up analysis or deployment work, use the **CCN+BFS10** recipe:
+CaloClusterNet edge logits with BFS-style traversal at `bfs_expand_cut=10 MeV`.
+The corresponding config is `configs/calo_cluster_net.yaml`, with the frozen
+checkpoint at `outputs/runs/calo_cluster_net_v2_stage1/checkpoints/best_model.pt`
+and `inference.tau_edge: 0.20`. The ONNX deployment contract and C++ interface
+notes are in `docs/onnx_deployment.md`.
+
 ## Quick start
 
 ```bash
