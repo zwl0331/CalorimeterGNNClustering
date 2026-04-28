@@ -85,6 +85,9 @@ def training_curves() -> None:
 
 
 def load_residuals() -> pd.DataFrame:
+    full = PROJECT / "outputs/cluster_physics_eval_test_full/cluster_residuals.csv"
+    if full.exists():
+        return pd.read_csv(full)
     return pd.read_csv(PROJECT / "outputs/cluster_physics_eval_bfs_test/cluster_residuals.csv")
 
 
