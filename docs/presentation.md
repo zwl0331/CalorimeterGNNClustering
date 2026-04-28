@@ -187,3 +187,31 @@ Before committing a slide, verify:
 6. Page number appears bottom-right; no nav symbols.
 7. No slide uses more than two font sizes below `\small` simultaneously.
 8. The final "Summary & Outlook" slide ends with a repository/contact URL centered in the primary color.
+
+## 11. Iterative Visual Review (mandatory before delivery)
+
+LaTeX warnings are not enough. Overfull boxes, label collisions, columns that
+clip into the footer, table rows that wrap awkwardly, dashed strokes that vanish,
+TikZ nodes that overlap a cluster boundary — none of these surface as compile
+errors. **Every slide deck must go through a compile → rasterize → eyeball →
+fix loop until convergence.**
+
+The loop:
+
+1. **Compile** with `pdflatex` twice (cross-refs): `pdflatex -interaction=nonstopmode -halt-on-error presentation.tex`. Bail on errors immediately.
+2. **Rasterize every page** to PNG at 150 DPI:
+   ```bash
+   rm -f /tmp/slides/*.png && mkdir -p /tmp/slides && \
+     pdftoppm -r 150 presentation.pdf /tmp/slides/slide -png
+   ```
+3. **Look at every page** — not just the ones you edited. A line-number shift in one frame can break layout in a later frame.
+4. **Catalog issues**: footer collisions, label-on-label, illegible thin/dashed strokes, table row that wraps, axis labels clipped, tikz node bisecting a circle, font-size cliffs, off-brand colors.
+5. **Fix all issues** in a single edit pass when possible — re-using the loop is cheap; partial fixes that need re-eyeballing are not.
+6. **Repeat** until no further visual issues remain. Stop only when a fresh sweep finds nothing.
+
+Rules of thumb:
+
+- **Tiny `Overfull \vbox` ($<2$ pt) is usually benign**, but always verify by looking — sometimes 1.5 pt clips a single descender.
+- **Auto mode is no excuse to skip this loop**. Compile-and-ship without rasterizing has caused real regressions (footer-eaten conclusions, dead dashed edges, bisected nodes).
+- **Plot-script changes count too.** If you change `make_slide_plots.py` or any figure source, regenerate the PNGs and re-rasterize the deck — a stale figure will silently drift from the slide caption.
+- **Numbers must trace back.** Any cell in a results table either ties to `docs/findings.md` or comes from a one-shot Python computation — record the snippet in the commit body or alongside the script so it can be re-run later.
