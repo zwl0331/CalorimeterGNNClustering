@@ -99,7 +99,8 @@ def energy_residual_hist(df: pd.DataFrame) -> None:
     directly on a linear scale.
     """
     methods = ["BFS", "CCN+BFS10"]
-    bins = np.linspace(-12, 12, 97)
+    # Range covers 99.99% of imperfect dE values; 1 MeV bins keep the visual clean.
+    bins = np.linspace(-50, 50, 101)
     nonzero = df["dE"].abs() > 1e-9
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.8))
@@ -120,14 +121,13 @@ def energy_residual_hist(df: pd.DataFrame) -> None:
                 label=f"{METHOD_LABEL[m]}: mean |dE|={overall['dE'].abs().mean():.3f} MeV",
             )
         ax.set_xlabel(r"$\Delta E = E_\mathrm{reco} - E_\mathrm{truth}$ (MeV)")
-        ax.set_ylabel("Clusters / 0.25 MeV")
+        ax.set_ylabel("Clusters / 1 MeV")
         ax.set_title(title)
-        ax.set_xlim(-12, 12)
-        ax.grid(True, alpha=0.25)
+        ax.set_xlim(-50, 50)
+        ax.set_yscale("log")
+        ax.grid(True, which="both", alpha=0.25)
         ax.legend(loc="lower center", bbox_to_anchor=(0.5, 1.06), ncol=1,
                   framealpha=0.0, fontsize=11.5, handlelength=1.8)
-        ymax = ax.get_ylim()[1]
-        ax.set_ylim(0, ymax * 1.05)
     fig.suptitle("Energy residual distributions (exact matches excluded from plot)",
                  fontsize=16, y=1.07)
     fig.subplots_adjust(top=0.78)
@@ -229,6 +229,7 @@ def improvement_bars() -> None:
         (r"95th $\Delta r$ tail",              36.4, "Track-seeding"),
         (r"Frac $|\Delta E|>10$ MeV",          30.1, "Track-seeding"),
         (r"Mean $|\Delta E|$ (signal 95–110)", 43.0, "Signal region"),
+        (r"Mean $\Delta r$ (signal 95–110)",   18.0, "Signal region"),
     ]
     cat_color = {
         "Standard":      "#4C4C4C",
