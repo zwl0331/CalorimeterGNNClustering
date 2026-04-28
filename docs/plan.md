@@ -669,7 +669,7 @@ v2 training numbers (best val F1, epochs): see `docs/findings.md` §4.1.
 v2 threshold-tuning numbers: see `docs/findings.md` §4.2.
 
 #### Step 8: Test set evaluation (run ONCE) ✓
-- [x] Evaluated both GNNs + BFS on test set: 4,000 events (500/file × 8 files), 6,996 disk-graphs
+- [x] Evaluated both GNNs + BFS on test set: 276,688 events (full test set, 8 files), 481,543 disk-graphs
 - [x] SimpleEdgeNet results: `outputs/test_eval_simpleedgenet/`
 - [x] CaloClusterNet results: `outputs/test_eval_caloclusternet/`
 
@@ -979,8 +979,8 @@ Results in `outputs/cluster_physics_eval_bfs_test/`.
 
 - [x] 14a: Energy-based expand_cut (edge deletion) — beats BFS on downstream but destroys standard metrics (splits 7-20x, TMR -4-11%)
 - [x] 14b: Learned node saliency — saliency-reweighted physics beats BFS on downstream (|dE| 0.825 vs 0.848) with identical standard metrics, but improvement is modest
-- [x] **14c: BFS-style traversal on GNN edges — both GNNs beat BFS on every metric.** Test set: CCN+BFS10 DS |dE| 0.642 (-20%), SEN+BFS10 DS |dE| 0.720 (-10%). Signal region (95-110 MeV): CCN+BFS10 best at 0.202 vs BFS 0.243. No retraining needed.
-- [x] Test set evaluation run once (4,000 events, 6,720 disk-graphs). Results in `outputs/cluster_physics_eval_bfs_test/`.
+- [x] **14c: BFS-style traversal on GNN edges — both GNNs beat BFS on every metric.** Test set: CCN+BFS10 DS |dE| 0.616 (-27%), SEN+BFS10 DS |dE| 0.651 (-22%). Signal region (95-110 MeV, 47,279 clusters): CCN+BFS10 mean |dE| 0.210 vs BFS 0.368 (-43%), mean dr 0.460 vs 0.559 (-18%). No retraining needed.
+- [x] Test set evaluation run once (276,688 events, 481,543 disk-graphs). Results in `outputs/cluster_physics_eval_test_full/` (CSV redirected to `/exp/mu2e/data/users/wzhou2/GNN/cluster_physics_eval_test_full/` via symlink due to 25 GB `/exp/mu2e/app` quota).
 
 ---
 

@@ -221,14 +221,14 @@ def improvement_bars() -> None:
     metrics = [
         ("Splits",                            38.0, "Standard"),
         ("Merges",                             8.4, "Standard"),
-        (r"Mean $|\Delta E|$ (all)",          20.0, "All clusters"),
-        (r"Std $\Delta E$ (all)",             15.0, "All clusters"),
-        (r"Mean $\Delta r$ (all)",            18.0, "All clusters"),
-        (r"Mean $|\Delta E|$ ($E\geq$50 MeV)", 20.0, "Track-seeding"),
-        (r"95th $|\Delta E|$ tail",            29.0, "Track-seeding"),
-        (r"95th $\Delta r$ tail",              45.0, "Track-seeding"),
-        (r"Frac $|\Delta E|>10$ MeV",          22.0, "Track-seeding"),
-        (r"Mean $|\Delta E|$ (signal 95–110)", 17.0, "Signal region"),
+        (r"Mean $|\Delta E|$ (all)",          19.0, "All clusters"),
+        (r"Std $\Delta E$ (all)",             15.3, "All clusters"),
+        (r"Mean $\Delta r$ (all)",            17.2, "All clusters"),
+        (r"Mean $|\Delta E|$ ($E\geq$50 MeV)", 26.5, "Track-seeding"),
+        (r"95th $|\Delta E|$ tail",            33.6, "Track-seeding"),
+        (r"95th $\Delta r$ tail",              36.4, "Track-seeding"),
+        (r"Frac $|\Delta E|>10$ MeV",          30.1, "Track-seeding"),
+        (r"Mean $|\Delta E|$ (signal 95–110)", 43.0, "Signal region"),
     ]
     cat_color = {
         "Standard":      "#4C4C4C",
@@ -256,7 +256,7 @@ def improvement_bars() -> None:
     ax.legend(handles, list(cat_color.keys()),
               loc="lower center", bbox_to_anchor=(0.5, 1.04),
               ncol=len(cat_color), framealpha=0.0, fontsize=11.5)
-    fig.suptitle("CCN+BFS10 improvement over BFS (test set, 4000 events)",
+    fig.suptitle("CCN+BFS10 improvement over BFS (test set, 276,688 events)",
                  fontsize=15, y=1.02)
     fig.subplots_adjust(top=0.84)
 

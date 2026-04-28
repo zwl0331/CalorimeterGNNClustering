@@ -58,3 +58,4 @@ slides/
 # splits/val_files.txt
 # splits/test_files.txt
 outputs/cluster_physics_eval_bfs_test/
+outputs/cluster_physics_eval_test_full

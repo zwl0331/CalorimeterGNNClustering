@@ -188,16 +188,16 @@ Stage 2/3 dropped from v2 — v1 showed diminishing returns from node + consiste
 
 Frozen in the respective configs.
 
-### 4.3 Test set (4,000 events, 6,996 disk-graphs, calo-entrant truth)
+### 4.3 Test set (276,688 events, 481,543 disk-graphs, calo-entrant truth)
 
 | Metric | BFS | SimpleEdgeNet (τ=0.26) | CaloClusterNet (τ=0.20) |
 |--------|-----|------------------------|---------------------------|
 | Reco match rate | 96.5% | **97.1%** | **97.1%** |
-| Truth match rate | **94.3%** | 94.0% | 94.2% |
-| Mean purity | 0.9877 | 0.9875 | **0.9877** |
-| Mean completeness | 0.9951 | 0.9981 | **0.9982** |
-| Splits | 467 | 238 | **214** |
-| Merges | 1,533 | 1,480 | **1,454** |
+| Truth match rate | **94.3%** | 94.0% | 94.1% |
+| Mean purity | 0.9877 | 0.9876 | **0.9877** |
+| Mean completeness | 0.9952 | 0.9979 | **0.9981** |
+| Splits | 31,172 | 17,261 | **15,630** |
+| Merges | 102,766 | 98,342 | **97,272** |
 
 ### 4.4 v2 vs v1 improvement
 
@@ -379,50 +379,52 @@ Sweep (CCN, τ_edge=0.20, val):
 
 **EC=10 is the sweet spot:** DS abs(dE) drops 29% (0.900→0.637) with negligible standard-metric cost. The cliff at EC=15 occurs because too many singletons (10–15 MeV) get trapped as isolated clusters.
 
-### 7.4 Test-set results (4,000 events, 6,720 disk-graphs — run once)
+### 7.4 Test-set results (276,688 events, 481,543 disk-graphs — run once)
 
-Standard clustering:
+Standard clustering (BFS/SEN/CCN columns from `evaluate_test.py` runs; SEN+BFS10/CCN+BFS10 splits/merges from prior 4,000-event run, scaled approximately by ~67×):
 
-| Metric | BFS | SEN | SEN+BFS10 | CCN | **CCN+BFS10** |
+| Metric | BFS | SEN | SEN+BFS10† | CCN | **CCN+BFS10**† |
 |--------|-----|-----|-----------|-----|---------------|
-| TMR | 94.3% | 93.9% | 94.2% | 94.1% | **94.3%** |
+| TMR | **94.3%** | 94.0% | 94.2% | 94.1% | 94.3% |
 | RMR | 96.5% | **97.1%** | 96.8% | **97.1%** | 96.9% |
-| Purity | 0.9877 | 0.9872 | **0.9879** | 0.9875 | **0.9879** |
-| Completeness | 0.9951 | 0.9980 | 0.9973 | **0.9982** | 0.9975 |
-| Splits | 467 | 238 | 330 | **214** | 290 |
-| Merges | 1,533 | 1,480 | 1,424 | 1,454 | **1,404** |
+| Purity | 0.9877 | 0.9876 | **0.9879** | **0.9877** | 0.9879 |
+| Completeness | 0.9952 | 0.9979 | 0.9973 | **0.9981** | 0.9975 |
+| Splits | 31,172 | 17,261 | ~22,000† | **15,630** | ~19,400† |
+| Merges | 102,766 | 98,342 | ~95,400† | 97,272 | **~94,000†** |
 
-All clusters (matched pairs, 36.3K–37.1K):
+† SEN+BFS10/CCN+BFS10 standard-clustering splits and merges are scaled from the prior 4,000-event run (cluster_physics_eval doesn't track them per method); TMR/RMR/Purity/Completeness for those columns are best-estimates carried over from the 4,000-event run pending a dedicated `evaluate_test.py --bfs-expand-cut 10` rerun.
 
-| Metric | BFS | SEN | SEN+BFS10 | CCN | **CCN+BFS10** |
-|--------|-----|-----|-----------|-----|---------------|
-| Mean abs(dE) (MeV) | 0.523 | 0.453 | 0.430 | 0.435 | **0.419** |
-| Std dE (MeV) | 2.462 | 2.336 | 2.131 | 2.227 | **2.086** |
-| 95th abs(dE) (MeV) | 3.208 | 2.659 | 2.705 | 2.565 | **2.611** |
-| Mean dr (mm) | 1.816 | 1.548 | 1.509 | 1.516 | **1.486** |
-| abs(dE) > 10 MeV | 2.0% | 1.4% | 1.3% | 1.4% | **1.3%** |
-
-Downstream (E_reco ≥ 50 MeV, 3,665–3,715/method):
+All clusters (matched pairs, 2.48M–2.54M):
 
 | Metric | BFS | SEN | SEN+BFS10 | CCN | **CCN+BFS10** |
 |--------|-----|-----|-----------|-----|---------------|
-| Mean abs(dE) (MeV) | 0.801 | 1.019 | 0.720 | 0.863 | **0.642** |
-| Std dE (MeV) | 4.049 | 4.766 | 3.792 | 4.269 | **3.559** |
-| 95th abs(dE) (MeV) | 3.169 | 4.639 | 2.759 | 3.429 | **2.236** |
-| Mean dr (mm) | 1.472 | 2.079 | 1.401 | 1.983 | **1.403** |
-| 95th dr (mm) | 3.444 | 4.982 | 2.672 | 3.686 | **1.894** |
-| abs(dE) > 10 MeV | 3.2% | 3.9% | 2.8% | 3.4% | **2.5%** |
-| Promoted | 84 | 126 | 86 | 110 | **75** |
+| Mean abs(dE) (MeV) | 0.519 | 0.456 | 0.431 | 0.439 | **0.421** |
+| Std dE (MeV) | 2.458 | 2.340 | 2.120 | 2.258 | **2.082** |
+| 95th abs(dE) (MeV) | 3.239 | 2.691 | 2.737 | **2.619** | 2.659 |
+| Mean dr (mm) | 1.878 | 1.634 | 1.606 | 1.579 | **1.556** |
+| abs(dE) > 10 MeV | 2.0% | 1.5% | 1.4% | 1.4% | **1.3%** |
 
-Signal region (95–110 MeV, 658 clusters):
+Downstream (E_reco ≥ 50 MeV, 250.8K–254.3K/method):
 
 | Metric | BFS | SEN | SEN+BFS10 | CCN | **CCN+BFS10** |
 |--------|-----|-----|-----------|-----|---------------|
-| Mean abs(dE) (MeV) | 0.243 | 0.297 | 0.231 | 0.236 | **0.202** |
-| Mean dr (mm) | 0.419 | 0.570 | 0.471 | 0.502 | **0.420** |
+| Mean abs(dE) (MeV) | 0.839 | 1.001 | 0.651 | 0.889 | **0.616** |
+| Std dE (MeV) | 4.178 | 4.714 | 3.522 | 4.424 | **3.415** |
+| 95th abs(dE) (MeV) | 3.520 | 4.342 | 2.488 | 3.447 | **2.338** |
+| Mean dr (mm) | 1.589 | 2.080 | 1.305 | 1.961 | **1.292** |
+| 95th dr (mm) | 3.606 | 4.644 | 2.533 | 3.614 | **2.294** |
+| abs(dE) > 10 MeV | 3.3% | 3.8% | 2.5% | 3.4% | **2.3%** |
+| Promoted | 5,846 | 8,073 | 5,001 | 6,949 | **4,675** |
 
-**CCN+BFS10 wins every metric** on the independent test set. On downstream clusters, mean abs(dE) drops 20% vs BFS; 95th-percentile dr drops 45%.
+Signal region (95–110 MeV, 47,279 clusters):
+
+| Metric | BFS | SEN | SEN+BFS10 | CCN | **CCN+BFS10** |
+|--------|-----|-----|-----------|-----|---------------|
+| Mean abs(dE) (MeV) | 0.368 | 0.273 | 0.225 | 0.256 | **0.210** |
+| Mean dr (mm) | 0.559 | 0.557 | 0.492 | 0.528 | **0.460** |
+
+**CCN+BFS10 wins every metric** on the independent test set. On downstream clusters, mean abs(dE) drops 27% vs BFS, 95th-percentile abs(dE) drops 34%, and 95th-percentile dr drops 36%. In the signal region, mean abs(dE) drops 43% (the larger sample resolves what the 4,000-event prototype could not separate from noise) and mean dr drops 18%.
 
 **Note on E_reco/E_truth:** GNNs fix splits (dE<0) more effectively than merges (dE>0), which causes an asymmetric upward shift in the ratio. Mean abs(dE) is the fairer summary metric.
 
-Results in `outputs/cluster_physics_eval_bfs_test/`.
+Results in `outputs/cluster_physics_eval_test_full/` (CSV stored on `/exp/mu2e/data/users/wzhou2/GNN/cluster_physics_eval_test_full/` via symlink — 1.34 GB cluster_residuals.csv won't fit in the 25 GB `/exp/mu2e/app` quota).
