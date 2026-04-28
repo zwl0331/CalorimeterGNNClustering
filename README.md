@@ -75,7 +75,7 @@ ROOT files (EventNtuple/ntuple TTree, MDC2025-002)
   |
   +-> src/geometry/crystal_geometry.py    crystalId -> (diskId, x, y) lookup
   +-> src/data/graph_builder.py           radius + kNN graph, node/edge features
-  +-> src/data/truth_labels.py            MC truth edge labels (SimParticle IDs)
+  +-> src/data/truth_labels_primary.py    calo-entrant truth (per-disk ancestor grouping)
   |
   +-> src/data/dataset.py
         extract_events_from_file()        yields PyG Data per disk per event
@@ -88,6 +88,7 @@ ROOT files (EventNtuple/ntuple TTree, MDC2025-002)
               |     calo_cluster_net.py        CaloClusterNet (primary)
               |       layers.py                EdgeAwareResBlock (residual MP)
               |       heads.py                 NodeSaliencyHead + EdgeClusteringHead
+              |     calo_cluster_net_deploy.py CaloClusterNetDeploy (edge-only ONNX wrapper)
               |
               +-> src/training/
               |     trainer.py                 train/val loop, early stopping
@@ -95,7 +96,7 @@ ROOT files (EventNtuple/ntuple TTree, MDC2025-002)
               |     metrics.py                 edge F1, AUC, cluster purity
               |
               +-> src/inference/
-                    cluster_reco.py            symmetrize, threshold, connected components
+                    cluster_reco.py            symmetrize, threshold, BFS traversal (ExpandCut)
                     postprocess.py             per-cluster energy, centroid, time, RMS
 ```
 
@@ -136,25 +137,28 @@ Hybrid radius + kNN strategy (see `src/data/graph_builder.py`):
 
 ## Truth labeling
 
-MC truth from `calohitsmc.simParticleIds` + `calohitsmc.eDeps` (MDC2025-002 format):
+Calo-entrant truth from `calohitsmc.simParticleIds` + `calohitsmc.eDeps` + `calomcsim.ancestorSimIds` (v2 ROOT files):
 
-- Dominant SimParticle per hit; ambiguous if energy purity < 0.7
-- Truth cluster = (dominant SimParticle, disk) pair
-- Edge label: 1 if both endpoints share the same truth cluster, 0 otherwise
-- Edges involving ambiguous hits are masked out of the loss
+- Each SimParticle is mapped to its **calo-entrant ancestor** — the highest ancestor in the Geant4 parent chain that also deposited in the same disk
+- Hits sharing the same calo-entrant ancestor form one truth cluster (per disk)
+- Hit is ambiguous if the dominant calo-entrant's energy purity < 0.7
+- Edge label: 1 if both endpoints share the same calo-entrant truth cluster, 0 otherwise
+- Edges involving ambiguous or unassigned hits are masked out of the loss
 
 ## Results
 
-Test set (4,000 events, 6,996 disk-graphs):
+Test set (4,000 events, 6,996 disk-graphs, calo-entrant truth):
 
-| Metric | BFS | SimpleEdgeNet (t=0.34) | CaloClusterNet (t=0.30) |
-|--------|-----|------------------------|---------------------------|
-| Reco match rate | 94.8% | **95.3%** | 95.2% |
-| Truth match rate | **88.1%** | 87.7% | **88.1%** |
-| Mean purity | 0.9727 | 0.9724 | **0.9731** |
-| Mean completeness | 0.9958 | **0.9983** | 0.9982 |
-| Splits | 385 | **208** | 235 |
-| Merges | 2,940 | 2,878 | **2,808** |
+| Metric | BFS | SimpleEdgeNet (τ=0.26) | CaloClusterNet (τ=0.20) | **CCN+BFS10** |
+|--------|-----|------------------------|--------------------------|----------------|
+| Reco match rate | 96.5% | **97.1%** | **97.1%** | 96.9% |
+| Truth match rate | 94.3% | 93.9% | 94.1% | **94.3%** |
+| Mean purity | 0.9877 | 0.9872 | 0.9875 | **0.9879** |
+| Mean completeness | 0.9951 | 0.9980 | **0.9982** | 0.9975 |
+| Splits | 467 | 238 | **214** | 290 |
+| Merges | 1,533 | 1,480 | 1,454 | **1,404** |
+
+CCN+BFS10 is the recommended deployment recipe: CaloClusterNet edge logits + BFS-style traversal (`bfs_expand_cut = 10 MeV`). On downstream-relevant clusters (`E_reco ≥ 50 MeV`) it improves mean |ΔE| by ~20% vs BFS while matching or beating it on every standard clustering metric. Full numbers in `docs/findings.md`.
 
 ## Project layout
 
