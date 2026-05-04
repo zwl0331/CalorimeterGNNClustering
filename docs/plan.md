@@ -1108,7 +1108,7 @@ Results in `outputs/cluster_physics_eval_bfs_test/`.
 - [x] Interim build stance → **link the central muse onnxruntime via the `u092` qualifier**. Sophie shared the `u092` muse manifest 2026-04-30; install under `muse/` and activate with `muse setup -q u092`. Stub option retired.
 - [x] Artifact runtime location → `ConfigFileLookupPolicy` confirmed; in-tree subdirectory still TBD (likely `Offline/CaloCluster/data/` or shared `Offline/Mu2eData/`).
 - [x] Version-string carrier → **ONNX `metadata_props`** (drives 16b).
-- [ ] Ownership split between Sam and Andy for 16d–16g — still to confirm.
+- [x] Ownership: Sam writes 16d–16g (EDProducers, graph builder, cluster assembler, FHiCL, parity tests); Andy reviews against the `ArtAnalysis#4` pattern; Sophie reviews calorimeter-group-facing pieces.
 - [x] Pre-decisions confirmed (repo location `Offline/CaloCluster/`, brute-force pairwise graph construction, BFS coexistence with distinct `"GNN"` instance name).
 - [x] Capture decisions back into `docs/offline_integration.md` and refine 16d–16h sub-tasks.
 
@@ -1220,7 +1220,7 @@ Single C++ class. Each FHiCL instance specifies which model to load, what versio
 
 - [x] 16a: Normalisation sidecar exported and documented
 - [x] 16b: Version-string guard wired into `metadata_props` + spec (Python side complete; C++ session-load assertion lands with 16d-cluster)
-- [x] 16c: ONNX integration meeting held 2026-04-29 — split design, central muse onnxruntime via `u092`, `metadata_props` version carrier, repo `Offline/CaloCluster/` confirmed; ownership split still to settle
+- [x] 16c: ONNX integration meeting held 2026-04-29 — split design, central muse onnxruntime via `u092`, `metadata_props` version carrier, repo `Offline/CaloCluster/` confirmed; Sam owns 16d–16g, Andy + Sophie review
 - [ ] 16d: Graph + cluster EDProducers + `CaloHitGraph` data product scaffolded (cluster module is model-agnostic, instanced via FHiCL)
 - [ ] 16e: Graph construction implemented inside `CaloHitGraphMaker`
 - [ ] 16f: Cluster assembly implemented inside `CaloClusterMakerGNN`

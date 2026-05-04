@@ -149,9 +149,9 @@ graph-product parity check at the module boundary (16g Stage 1).
 
 Status as of the 2026-04-29 meeting with Sophie + Andy. Decided
 subsections are marked **DECIDED** in the heading: §2.1, §2.2, §2.4,
-§2.5, §2.6, §2.7. §2.3 (BFS coexistence) was uncontested. §2.8
-(ownership split) is still open. Each subsection records the
-final decision and the reasoning that led there.
+§2.5, §2.6, §2.7, §2.8. §2.3 (BFS coexistence) was uncontested. All
+subsections are now closed. Each records the final decision and the
+reasoning that led there.
 
 ### 2.1 Repo location — DECIDED: `Offline/CaloCluster/`
 
@@ -283,15 +283,13 @@ ONNX `metadata_props` map after export; the C++ session loader reads
 it back and compares against an expected value passed in via FHiCL,
 aborting on mismatch. Wired up in 16b.
 
-### 2.8 Ownership split
+### 2.8 Ownership split — DECIDED: Sam writes 16d–16g; Andy + Sophie review
 
-Default assumption: **Sam writes** the EDProducer, the graph builder,
-the cluster assembler, the FHiCL, and the parity tests. **Andy reviews**
-following his ArtAnalysis#4 pattern. **Sophie reviews** the calorimeter-
-group-facing pieces (FHiCL exposure, instance names, downstream
-consumer documentation).
-
-Confirm — Andy may have appetite to write parts.
+**Sam writes** the EDProducer, the graph builder, the cluster
+assembler, the FHiCL, and the parity tests (Tasks 16d–16g). **Andy
+reviews** following his ArtAnalysis#4 pattern. **Sophie reviews** the
+calorimeter-group-facing pieces (FHiCL exposure, instance names,
+downstream consumer documentation).
 
 ---
 
@@ -369,13 +367,18 @@ Meeting held 2026-04-29 with Sophie + Andy. Status as of 2026-05-03.
 | Module boundary (§2.2) | DECIDED — split (graph producer + cluster producer) |
 | onnxruntime availability (§2.5) | DECIDED — link central muse onnxruntime via `u092`; manifest in hand |
 | Version-string carrier (§2.7) | DECIDED — `metadata_props` |
-| Version-string guard (16b) | in flight (carrier decided, code change pending) |
-| `CaloHitGraph` data product schema (§2.2 sub) | open — drives 16d-product |
-| Persistence of graph product (§2.2 sub) | open — drives 16d-product |
-| EDProducer skeletons (16d-graph, 16d-cluster) | planned, blocked on schema decision |
+| Version-string guard (16b) | done — `metadata_props` stamped on export; C++ assertion lands with 16d-cluster |
+| Feature-spec metadata_props (16j Python side) | done — `node_features` / `edge_features` stamped; C++ handshake lands with 16d |
+| `CaloHitGraph` data product schema (§2.2 sub) | DECIDED — flat tensors + `art::Ptr<CaloHit>` back-references |
+| Persistence of graph product (§2.2 sub) | DECIDED — transient |
+| Module-class swappability (§2.2 sub) | DECIDED — single model-agnostic `CaloClusterMakerGNN`, instanced via FHiCL |
+| Ownership split (§2.8) | DECIDED — Sam writes 16d–16g; Andy + Sophie review |
+| u092 envset installed; Offline + EventNtuple built under u092 | done |
+| EDProducer skeletons (16d-graph, 16d-cluster) | unblocked, ready to start |
 | Graph construction C++ port (16e) | planned |
 | Cluster assembly C++ port (16f) | planned |
 | C++↔Python parity harness (16g) | planned (now two-stage + end-to-end) |
+| SimpleEdgeNet ONNX export (16i) | planned |
 | Generic ONNX utils (Sophie / Leo) | watching — may inform 16d-cluster |
 | EventNtuple PR for `ancestorSimIds` | requested by Sophie 2026-04-30; pending |
 
@@ -383,9 +386,9 @@ Meeting held 2026-04-29 with Sophie + Andy. Status as of 2026-05-03.
 
 ## 5. What unblocked after the meeting
 
-§2.1, §2.2, §2.4, §2.5, §2.6, §2.7 are decided. §2.3 (BFS coexistence)
-confirmed. Still open: §2.8 (ownership split) and the §2.2 sub-decisions
-on graph-product schema and persistence.
+§2.1–§2.8 are all decided; §2.3 (BFS coexistence) confirmed. The §2.2
+graph-product schema/persistence sub-decisions are also now locked
+(see §2.2). Nothing in §2 is blocking the C++ work.
 
 - §2.2 split confirmed ⇒ 16d expands to graph + cluster modules + the
   `CaloHitGraph` data product (16d-graph / 16d-cluster / 16d-product).
