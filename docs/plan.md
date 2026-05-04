@@ -1181,9 +1181,15 @@ Single C++ class. Each FHiCL instance specifies which model to load, what versio
 
 - [x] Dump val graph payloads (`edge_index`, `edge_logits` from PyTorch, `energies`, Python `cluster_labels`) to a portable JSON via `scripts/dump_parity_payloads.py`. Default output `tests/parity/calo_cluster_net_v2_stage1.parity.json`. 100 graphs, 1,147 nodes, 2,768 edges.
 - [x] Stage 2 — cluster-assembler parity: standalone `testGnnClusterAssembler` binary (built via `make_bin` in `Offline/CaloCluster/src/SConscript`) loads the JSON, replays `GnnClusterAssembler::assemble`, asserts byte-exact match against Python `cluster_labels`. **Result: 100 / 100 graphs match byte-exactly** (zero mismatched nodes). Run binary at `build/al9-prof-e29-u092/Offline/bin/testGnnClusterAssembler`.
-- [ ] Stage 1 — graph-maker parity: feed raw `CaloHit`s through `CaloHitGraphMaker` in a real art job, compare emitted `CaloHitGraph` tensors against Python (bit-exact on `edge_index`, ~1e-6 on float tensors). Needs an art FCL + a small input art file with `CaloHitCollection`. Deferred.
-- [ ] Stage 3 — end-to-end: Stage 1 output piped into Stage 2 in the same job, same bounds. Needs the same FCL setup as Stage 1.
-- [ ] Fail loudly if any bound is exceeded.
+- [x] Stage 1 + Stage 3 — end-to-end parity: real `mu2e` art job reads MCS art files (`/pnfs/mu2e/persistent/.../FlateMinusMix1BBTriggered/MDC2025af_best_v1_1/art/...`), runs `CaloHitGraphMaker` + `CaloClusterMakerGNN`, and the new `CaloHitGraphParityDump` analyzer dumps the GNN cluster labels per event-disk to a TTree. `scripts/compare_parity_dump.py` re-runs the same `CaloHit`s through the Python pipeline and asserts the partition matches. **Result on 50 events / 100 disk-graphs / 8,502 hits: zero mismatches.** This implicitly covers Stage 1 — any divergence in graph construction would propagate to mismatched labels.
+- [x] Fail loudly if any bound is exceeded.
+
+Reference run:
+```
+mu2e -c Offline/CaloCluster/fcl/from_mcs-gnn-test.fcl \
+     -s <mcs.art> -n 50 -T parity_dump.root
+python3 scripts/compare_parity_dump.py parity_dump.root
+```
 
 #### 16h: Production FHiCL wiring
 
@@ -1226,7 +1232,7 @@ Single C++ class. Each FHiCL instance specifies which model to load, what versio
 - [x] 16d: Graph + cluster EDProducers + `CaloHitGraph` data product scaffolded (cluster module is model-agnostic, instanced via FHiCL); both `.so` plugins build under u092
 - [x] 16e: Graph construction implemented inside `CaloHitGraphMaker` (full Python port; metadata_props handshake wired through to 16d-cluster)
 - [x] 16f: Cluster assembly implemented inside `CaloClusterMakerGNN` (`GnnClusterAssembler` helper + ONNX inference + CaloCluster construction in `produce()`)
-- [x] 16g: Stage 2 (cluster-assembler) parity validated — 100 / 100 val graphs match Python `cluster_labels` byte-exactly. Stage 1 (graph-maker) and Stage 3 (end-to-end) need real art jobs with input art files; deferred.
+- [x] 16g: All stages validated — Stage 2 (assembler-only, 100 val graphs) byte-exact; Stages 1 + 3 (real `mu2e` art job on MCS files, 50 events / 100 disk-graphs / 8,502 hits) byte-exact.
 - [ ] 16h: Both new producers wired into production FHiCL and smoke-tested
 - [ ] 16i: SimpleEdgeNet exported to ONNX and validated for parity, deployable alongside CCN
 - [ ] 16j: `metadata_props` carries `node_features` / `edge_features` (Python side complete); graph maker ↔ cluster module handshake at job start (C++ side, with 16d)

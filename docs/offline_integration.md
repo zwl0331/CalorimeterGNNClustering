@@ -378,7 +378,7 @@ Meeting held 2026-04-29 with Sophie + Andy. Status as of 2026-05-03.
 | Graph construction C++ port (16e) | done — `GnnGraphBuilder` is a full port of `src/data/graph_builder.py`; sidecar handshake validated at `loadStatsFromJson` |
 | Cluster assembly C++ port (16f) | done — `GnnClusterAssembler` helper + ONNX inference + CaloCluster construction wired in `CaloClusterMakerGNN::produce()` |
 | C++↔Python parity Stage 2 (16g, assembler) | done — 100 / 100 val graphs match Python `cluster_labels` byte-exactly |
-| C++↔Python parity Stage 1 + 3 (16g, art job) | deferred — needs an input art file + FCL setup |
+| C++↔Python parity Stage 1 + 3 (16g, art job) | done — 50 events / 100 disk-graphs / 8,502 hits byte-exact via `from_mcs-gnn-test.fcl` + `CaloHitGraphParityDump` + `scripts/compare_parity_dump.py` |
 | C++↔Python parity harness (16g) | planned (now two-stage + end-to-end) |
 | SimpleEdgeNet ONNX export (16i) | planned |
 | Generic ONNX utils (Sophie / Leo) | watching — may inform 16d-cluster |
