@@ -22,9 +22,46 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import onnx
 import torch
 
 from src.models.calo_cluster_net_deploy import CaloClusterNetDeploy
+
+# Defaults stamped into the ONNX `metadata_props` map after export. The
+# C++ deployment asserts these at session load (FHiCL passes the
+# expected values); a mismatch aborts the job. Bump `model_version`
+# on any layout-breaking change — new feature set, retrained weights,
+# opset bump. Bump `node_features` / `edge_features` whenever the
+# normalised feature columns change order or meaning, so the
+# `CaloHitGraphMaker` can fail loudly instead of feeding scrambled
+# tensors into the model.
+DEFAULT_MODEL_VERSION = "calo-cluster-net-v2-stage1"
+NODE_FEATURE_NAMES = ["log_e", "t", "x", "y", "r", "e_rel"]
+EDGE_FEATURE_NAMES = ["dx", "dy", "d", "dt", "dlog_e", "asym_e", "logsum_e", "dr"]
+
+
+def stamp_metadata_props(onnx_path: Path, version: str,
+                         node_features: list[str], edge_features: list[str]) -> None:
+    """Set the deployment-contract entries on an ONNX file.
+
+    Idempotent for the keys we own: removes any existing entries with
+    the same keys before appending. Other entries (e.g. PyTorch's own
+    producer info) are preserved.
+    """
+    keys_we_own = {"model_version", "node_features", "edge_features"}
+    m = onnx.load(str(onnx_path))
+    keep = [p for p in m.metadata_props if p.key not in keys_we_own]
+    del m.metadata_props[:]
+    m.metadata_props.extend(keep)
+    for key, value in (
+        ("model_version", version),
+        ("node_features", ",".join(node_features)),
+        ("edge_features", ",".join(edge_features)),
+    ):
+        e = m.metadata_props.add()
+        e.key = key
+        e.value = value
+    onnx.save(m, str(onnx_path))
 
 
 def pick_example_graph(val_pt_path: Path, min_edges: int = 20):
@@ -60,6 +97,11 @@ def main():
     parser.add_argument(
         "--opset", type=int, default=17,
         help="ONNX opset version. 17+ is supported by ONNX Runtime 1.17+.",
+    )
+    parser.add_argument(
+        "--model-version", type=str, default=DEFAULT_MODEL_VERSION,
+        help="Stamped into ONNX metadata_props['model_version']. "
+             "C++ asserts this at session load via FHiCL.",
     )
     args = parser.parse_args()
 
@@ -102,8 +144,15 @@ def main():
         opset_version=args.opset,
         do_constant_folding=True,
     )
+    stamp_metadata_props(
+        args.output, args.model_version,
+        NODE_FEATURE_NAMES, EDGE_FEATURE_NAMES,
+    )
     size_mb = args.output.stat().st_size / (1024 * 1024)
     print(f"Wrote {args.output}  ({size_mb:.2f} MB)")
+    print(f"  metadata_props.model_version  = {args.model_version!r}")
+    print(f"  metadata_props.node_features  = {','.join(NODE_FEATURE_NAMES)!r}")
+    print(f"  metadata_props.edge_features  = {','.join(EDGE_FEATURE_NAMES)!r}")
 
 
 if __name__ == "__main__":
