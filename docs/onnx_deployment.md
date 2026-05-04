@@ -5,6 +5,10 @@ Interface contract for deploying the GNN calorimeter-clustering model
 via ONNX Runtime. Target consumer: an `art::EDProducer` following the
 pattern in Andy Edmonds's `Mu2e/ArtAnalysis#4`.
 
+For the surrounding integration plan (where the producer lives, how it
+coexists with BFS, design decisions for the integration meeting), see
+`docs/offline_integration.md`.
+
 The exported `.onnx` covers **only the forward pass** (node/edge
 encoders + 4 message-passing blocks + edge head). Graph construction
 (Offline `CaloHit` → PyG tensors) and cluster assembly (edge logits →
@@ -13,16 +17,24 @@ on the C++ side; pseudocode is below.
 
 ---
 
-## 1. Model artifact
+## 1. Model artifacts
+
+The C++ deployment supports running any model that conforms to the
+tensor interface (§2) and embeds the right `metadata_props` (§7).
+Production today ships **two** artifacts; new models drop in via
+config without code changes (see `docs/offline_integration.md` §2.2).
+
+| Artifact | Source checkpoint | `model_version` (§7) | Frozen `tau_edge` |
+|---|---|---|---|
+| `outputs/onnx/calo_cluster_net_v2_stage1.onnx` (default, ~2.6 MB) | `outputs/runs/calo_cluster_net_v2_stage1/checkpoints/best_model.pt` | `calo-cluster-net-v2-stage1` | 0.20 |
+| `outputs/onnx/simple_edge_net_v2.onnx` (Task 16i, planned) | `outputs/runs/simple_edge_net_v2/checkpoints/best_model.pt` | `simple-edge-net-v2` | 0.26 |
 
 | Property | Value |
 |---|---|
-| File | `outputs/onnx/calo_cluster_net_v2_stage1.onnx` (gitignored, ~2.6 MB) |
 | Opset | 17 |
 | IR version | 8 |
 | Producer | PyTorch 2.5.1 |
-| Source checkpoint | `outputs/runs/calo_cluster_net_v2_stage1/checkpoints/best_model.pt` |
-| Regenerate | `python3 scripts/export_onnx.py` |
+| Regenerate | `python3 scripts/export_onnx.py` (CCN default; `--model sen` once 16i lands) |
 | Validate | `python3 scripts/validate_onnx.py` |
 
 All inference is CPU. No GPU needed in deployment.
@@ -54,37 +66,79 @@ One graph per calorimeter disk per event. `N` = hit count; `E` = directed edge c
 ## 3. Normalisation
 
 Both `x` and `edge_attr` must be z-scored using the train-split
-statistics in `data/normalization_stats.pt` **before** feeding to the
-ONNX model. The trained weights assume this normalisation.
+statistics **before** feeding to the ONNX model. The trained weights
+assume this normalisation.
 
 ```
 x_norm[:, i]        = (x_raw[:, i]        - node_mean[i]) / node_std[i]
 edge_attr_norm[:, i] = (edge_attr_raw[:, i] - edge_mean[i]) / edge_std[i]
 ```
 
+### Canonical source for C++
+
+The C++ deployment reads stats from a JSON sidecar that ships next to
+the `.onnx`:
+
+```
+outputs/onnx/calo_cluster_net_v2_stage1.norm.json
+```
+
+Schema (flat, one entry per field):
+
+| Field | Type | Notes |
+|---|---|---|
+| `schema_version` | int | Bump on layout-breaking changes (currently `1`) |
+| `node_features` | string[6] | Canonical feature names in index order |
+| `edge_features` | string[8] | Canonical feature names in index order |
+| `node_mean`, `node_std` | float[6] | Z-score stats (float32 values, JSON-encoded) |
+| `edge_mean`, `edge_std` | float[8] | Z-score stats |
+| `node_count`, `edge_count` | int | Sample counts the stats were computed from (audit only) |
+
+The sidecar is bit-exact with `data/normalization_stats.pt` (the torch
+blob produced by training). Regenerate with:
+
+```
+python3 scripts/export_norm_stats.py
+```
+
+The C++ side should assert `node_features` and `edge_features` match
+the names it expects, then index `_mean` / `_std` by feature index.
+Round-trip parity with the torch blob is verified by
+`tests/test_export_norm_stats.py`.
+
+The same canonical names live a second time in the ONNX file's
+`metadata_props` map (§7), so the cluster module can independently
+verify the loaded model expects the features the graph maker is
+emitting. Sidecar names ↔ metadata_props names ↔ FHiCL names must all
+agree for the job to start.
+
 ### Node feature stats (train split, 348,548 hits)
 
-| Idx | Feature | Unit | Mean | Std |
-|---|---|---|---|---|
-| 0 | `log(1 + E/MeV)` | log-MeV | 2.4069 | 0.7528 |
-| 1 | hit time `t` | ns | 834.6544 | 390.6363 |
-| 2 | disk-local `x` | mm | −23.6271 | 325.2221 |
-| 3 | disk-local `y` | mm | 70.9853 | 315.6965 |
-| 4 | radial `r = sqrt(x² + y²)` | mm | 455.1254 | 62.3836 |
-| 5 | `E / E_max` (per graph) | — | 0.3843 | 0.2934 |
+`JSON key` is the entry in `node_features` of the sidecar at the same index.
+
+| Idx | JSON key | Feature | Unit | Mean | Std |
+|---|---|---|---|---|---|
+| 0 | `log_e` | `log(1 + E/MeV)` | log-MeV | 2.4069 | 0.7528 |
+| 1 | `t` | hit time | ns | 834.6544 | 390.6363 |
+| 2 | `x` | disk-local `x` | mm | −23.6271 | 325.2221 |
+| 3 | `y` | disk-local `y` | mm | 70.9853 | 315.6965 |
+| 4 | `r` | radial `r = sqrt(x² + y²)` | mm | 455.1254 | 62.3836 |
+| 5 | `e_rel` | `E / E_max` (per graph) | — | 0.3843 | 0.2934 |
 
 ### Edge feature stats (train split, 831,668 directed edges)
 
-| Idx | Feature | Unit | Mean | Std |
-|---|---|---|---|---|
-| 0 | `dx = x_i − x_j` | mm | 0.0 | 108.0510 |
-| 1 | `dy = y_i − y_j` | mm | 0.0 | 107.5170 |
-| 2 | `d = sqrt(dx² + dy²)` | mm | 95.8032 | 118.5608 |
-| 3 | `dt = t_i − t_j` | ns | 0.0 | 4.8740 |
-| 4 | `d log E = log(1+E_i) − log(1+E_j)` | log-MeV | 0.0 | 1.2146 |
-| 5 | `(E_i − E_j) / (E_i + E_j)` | — | 0.0 | 0.5318 |
-| 6 | `log(1 + E_i + E_j)` | log-MeV | 3.1024 | 0.6095 |
-| 7 | `dr = r_i − r_j` | mm | 0.0 | 47.5153 |
+`JSON key` is the entry in `edge_features` of the sidecar at the same index.
+
+| Idx | JSON key | Feature | Unit | Mean | Std |
+|---|---|---|---|---|---|
+| 0 | `dx` | `x_i − x_j` | mm | 0.0 | 108.0510 |
+| 1 | `dy` | `y_i − y_j` | mm | 0.0 | 107.5170 |
+| 2 | `d` | `sqrt(dx² + dy²)` | mm | 95.8032 | 118.5608 |
+| 3 | `dt` | `t_i − t_j` | ns | 0.0 | 4.8740 |
+| 4 | `dlog_e` | `log(1+E_i) − log(1+E_j)` | log-MeV | 0.0 | 1.2146 |
+| 5 | `asym_e` | `(E_i − E_j) / (E_i + E_j)` | — | 0.0 | 0.5318 |
+| 6 | `logsum_e` | `log(1 + E_i + E_j)` | log-MeV | 3.1024 | 0.6095 |
+| 7 | `dr` | `r_i − r_j` | mm | 0.0 | 47.5153 |
 
 Stats are frozen — never recompute on test or deployment data.
 
@@ -194,26 +248,53 @@ Reproduce: `python3 scripts/validate_onnx.py`.
 
 ---
 
-## 7. Open items / coordination
+## 7. Version + feature contract (`metadata_props`)
 
-- **Central `onnxruntime` in muse.** Andy is working with Ray on this.
-  Until it lands we can build against a local install; not a blocker
-  for drafting the art module.
-- **Module boundaries.** Does the `art::EDProducer` wrap graph
-  construction + ONNX inference + cluster assembly all in one module,
-  or do we split construction into a separate producer that emits a PyG-
-  style art data product? Worth a decision with Sophie/Andy.
-- **Graph construction in C++.** The Python builder uses
-  `scipy.spatial.cKDTree` for the radius graph. The Offline Calorimeter
-  service already exposes neighbour lists (`cal.neighbors`,
-  `cal.nextNeighbors`) — faster than a cKDTree at runtime but only covers
-  the nearest two rings. Need to confirm whether a two-ring neighbour
-  set + explicit long-range candidates reproduces the 210 mm radius graph
-  faithfully, or whether we port the cKDTree approach.
-- **Normalisation storage.** `data/normalization_stats.pt` is a PyTorch
-  blob. For C++ deployment we should export it once to a plain text or
-  JSON sidecar next to the `.onnx` so the module doesn't need a
-  LibTorch dependency just to read six floats.
-- **Versioning.** Any change to the `.onnx` — new training run, new
-  feature set, opset bump — must bump a version string that the C++
-  module checks at load time so silent tensor-layout drift is caught.
+Each `.onnx` carries three keys in its `metadata_props` map. The C++
+session loader (`CaloClusterMakerGNN` constructor) reads them and
+asserts each one against the corresponding FHiCL parameter passed by
+the production config. Any mismatch aborts the job before the first
+event runs — so silent tensor-layout drift after a retraining cannot
+go undetected.
+
+| Key | Example value | FHiCL parameter to compare against | Bump when… |
+|---|---|---|---|
+| `model_version` | `calo-cluster-net-v2-stage1` | `expected_model_version` | weights or feature set or opset changes |
+| `node_features` | `log_e,t,x,y,r,e_rel` | `expected_node_features` | per-node feature columns change order or meaning |
+| `edge_features` | `dx,dy,d,dt,dlog_e,asym_e,logsum_e,dr` | `expected_edge_features` | per-edge feature columns change order or meaning |
+
+Values are written by `scripts/export_onnx.py` after `torch.onnx.export`
+returns. Keys are stable; values evolve with the model. The two
+feature-name keys are comma-separated strings (no whitespace), in
+canonical column order — they must match the names in
+`calo_cluster_net_v2_stage1.norm.json` (§3) and the columns the
+`CaloHitGraphMaker` is wired to emit. The graph-maker side of the
+handshake lives in its own FHiCL (`node_features` / `edge_features`
+parameters), so the chain
+`graph-maker FHiCL → cluster-maker FHiCL → ONNX metadata_props` is
+asserted end-to-end at job start.
+
+Inspect manually with:
+
+```python
+import onnx
+m = onnx.load("outputs/onnx/calo_cluster_net_v2_stage1.onnx")
+print({p.key: p.value for p in m.metadata_props})
+```
+
+### Validation table at the session boundary
+
+| Side | Reads | Asserts |
+|---|---|---|
+| `CaloHitGraphMaker` | FHiCL `node_features`/`edge_features` (the names it emits in column order) | (none — it's the source of truth on the graph side) |
+| `CaloClusterMakerGNN` | FHiCL `expected_*_features`, ONNX `metadata_props["*_features"]` | both equal each other; both equal what the graph maker emits (verified by passing the same FHiCL list into both modules in the production config) |
+
+### Deployment status (resolved at the 2026-04-29 meeting)
+
+Earlier open items in this section have moved to `docs/offline_integration.md`:
+
+- Central `onnxruntime` in muse (§2.5) — link via the `u092` qualifier.
+- Module boundaries (§2.2) — split into graph-maker + cluster-maker EDProducers.
+- Graph construction strategy (§2.4) — brute-force pairwise distance loop.
+- Normalisation storage (§3) — JSON sidecar shipped alongside the `.onnx` (Task 16a, done).
+- Version-string carrier (§2.7) — ONNX `metadata_props` (this section).

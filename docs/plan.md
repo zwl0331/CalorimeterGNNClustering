@@ -1058,6 +1058,179 @@ Results in `outputs/cluster_physics_eval_bfs_test/`.
 
 ---
 
+### Task 16: C++ Offline Integration
+
+**Goal:** Land the trained CaloClusterNet model in Mu2e Offline as an `art::EDProducer` so the GNN clustering can run inside production reconstruction **alongside** the existing BFS `CaloClusterMaker` — both producers run, downstream consumers pick by `(module_label, instance_name)`. The GNN does not replace BFS.
+
+**Pre-meeting design note:** `docs/offline_integration.md` — the integration picture, the design decisions for the meeting, the open questions, and the pre-meeting state. Read alongside this checklist.
+
+**Decisions taken (pre- and at-meeting; meeting held 2026-04-29 with Sophie + Andy):**
+- Repo location: `Offline/CaloCluster/` (same package as BFS). [pre-meeting]
+- Graph-construction implementation: brute-force pairwise distance loop in C++ (faithful port of `scipy.spatial.cKDTree` behaviour; N≤~65 per disk-event makes O(N²) trivially cheap). [pre-meeting]
+- Coexistence with BFS: GNN producer alongside BFS, distinct instance name `"GNN"`, BFS untouched. [pre-meeting]
+- Artifact runtime location: `art::ConfigFileLookupPolicy` (Mu2e standard pattern; matches reviewer feedback on `Mu2e/ArtAnalysis#4`). FHiCL gives a relative path; framework resolves it. [pre-meeting]
+- **Module boundary: split.** `CaloHitGraphMaker` emits a `CaloHitGraphCollection` per event; `CaloClusterMakerGNN` consumes it and emits `CaloClusterCollection` under instance `"GNN"`. Sub-decisions still open in `docs/offline_integration.md` §2.2 (graph data-product schema, persistence, helper-class home, naming). [meeting]
+- **onnxruntime / build:** link against the central muse onnxruntime via the `u092` qualifier. Sophie shared the `u092` muse manifest 2026-04-30 (Slack DM); install under a `muse/` directory in the working environment, then `mu2einit && muse setup -q u092`. The "stub the ONNX call" interim option is retired. [meeting]
+- **Version-string carrier:** ONNX `metadata_props`. Drives 16b. [meeting]
+
+**Patterns to mirror / pre-empt from `Mu2e/ArtAnalysis#4`** (see `docs/offline_integration.md` §2.9 for full list): use `ConfigFileLookupPolicy` for artifact paths; document constructor member-init order; don't mutate ONNX output; no dead helpers; standard SConscript indentation; one `'onnxruntime'` dependency line.
+
+**Scope:** C++ side — the new art module (graph construction, ONNX inference, cluster assembly), build/FHiCL wiring, and parity validation against the Python reference. Module boundary, target repo, and graph-construction strategy land at the ONNX integration meeting (Milestone J open item) and refine 16d–16f below.
+
+**Repo target:** Offline (`Offline/CaloCluster/`) is the architectural home — GNN clustering is a *reconstruction* step like BFS, not an analysis step. ArtAnalysis is where Andy's `Mu2e/ArtAnalysis#4` first wires up `onnxruntime`, so the build pattern is more mature there in the short term; the meeting decides whether to mirror that pattern directly into Offline or take a temporary detour through ArtAnalysis.
+
+**Hard dependencies (others' work):**
+- Andy Edmonds's `Mu2e/ArtAnalysis#4` PR (TrackQuality ONNX integration) lands — the pattern this module follows.
+- Central `onnxruntime` install in muse (Andy + Ray) — so the module builds against a stock muse setup rather than a local install.
+
+#### 16a: Normalisation sidecar (pre-meeting, no dependencies) ✓
+
+**Goal:** Export the train-split z-score statistics to a plain-text/JSON file alongside the `.onnx`, so the C++ module reads 28 floats without needing a LibTorch dependency to open `data/normalization_stats.pt`.
+
+- [x] Wrote `scripts/export_norm_stats.py` — reads `data/normalization_stats.pt`, emits `outputs/onnx/calo_cluster_net_v2_stage1.norm.json` with `schema_version`, canonical `node_features`/`edge_features` lists, and `{node_mean, node_std, edge_mean, edge_std, node_count, edge_count}`.
+- [x] Updated `docs/onnx_deployment.md` §3 — added sidecar schema, regen command, and a `JSON key` column in the feature tables so C++ implementers can index by name.
+- [x] Added `tests/test_export_norm_stats.py` — 8 tests covering payload shape, canonical name match, bit-exact tensor↔list round-trip, count types, dimension-mismatch errors, sidecar↔torch-blob equivalence, and end-to-end save/load. Full suite now 105 tests (was 97).
+
+#### 16b: Version-string guard ✓
+
+**Goal:** Embed a short version identifier in the `.onnx` (decided 2026-04-29: ONNX `metadata_props` — travels with the artifact, no risk of desync with a separate sidecar) so the C++ module rejects mismatched models at load time and prevents silent tensor-layout drift.
+
+- [x] Decide carrier — `metadata_props` (decided at the 2026-04-29 meeting).
+- [x] `scripts/export_onnx.py` writes `metadata_props["model_version"] = "calo-cluster-net-v2-stage1"` after `torch.onnx.export` via `stamp_metadata_props()`. Re-export landed: `outputs/onnx/calo_cluster_net_v2_stage1.onnx` 2.60 MB.
+- [x] Documented in `docs/onnx_deployment.md` §7 — C++ asserts at session load against FHiCL `expected_model_version`.
+- [x] Tests in `tests/test_export_onnx.py` (5 tests; idempotent overwrite, foreign-key preservation, canonical-name match with sidecar). Full suite now 110 tests passing; ONNX↔PyTorch parity preserved (max diff 9.06e-06, zero threshold flips at τ=0.20).
+
+#### 16c: ONNX integration meeting — held 2026-04-29 with Sophie + Andy
+
+**Goal:** Lock down the remaining open design decisions before C++ implementation starts.
+
+- [x] Module boundary → **split** (graph producer + cluster producer with an intermediate `CaloHitGraphCollection`).
+- [x] Interim build stance → **link the central muse onnxruntime via the `u092` qualifier**. Sophie shared the `u092` muse manifest 2026-04-30; install under `muse/` and activate with `muse setup -q u092`. Stub option retired.
+- [x] Artifact runtime location → `ConfigFileLookupPolicy` confirmed; in-tree subdirectory still TBD (likely `Offline/CaloCluster/data/` or shared `Offline/Mu2eData/`).
+- [x] Version-string carrier → **ONNX `metadata_props`** (drives 16b).
+- [ ] Ownership split between Sam and Andy for 16d–16g — still to confirm.
+- [x] Pre-decisions confirmed (repo location `Offline/CaloCluster/`, brute-force pairwise graph construction, BFS coexistence with distinct `"GNN"` instance name).
+- [x] Capture decisions back into `docs/offline_integration.md` and refine 16d–16h sub-tasks.
+
+**Newly opened post-meeting (track in `docs/offline_integration.md` §3):**
+- Sophie is writing **generic ONNX utils** (translating Leo's code). Decide whether `CaloClusterMakerGNN` consumes those utils for session loading / sidecar reading / version checking, or rolls its own. Ask Sophie before starting 16d-cluster.
+- **PR sequencing:** EventNtuple `ancestorSimIds` patch must land in `Mu2e/EventNtuple` before any Offline PR depending on the branch (Sophie asked for the PR 2026-04-30).
+- **Training repo:** Sophie pointed at `Mu2e/MLTrain` for training code. Not a deployment blocker but tracks alongside.
+
+#### 16d: art::EDProducer skeletons (split design)
+
+**Goal:** Stand up two new EDProducers and one new data product following Andy's `ArtAnalysis#4` pattern. The graph producer builds the per-disk graph; the cluster producer loads the ONNX session at construction and consumes the graph product.
+
+##### 16d-product: `CaloHitGraph` data product
+
+- [ ] Decide schema: tensors (`x` flat float, `edge_index` flat int64, `edge_attr` flat float) + per-node `art::Ptr<CaloHit>` back-references + `(N, E)` shape headers. One entry per disk per event.
+- [ ] Decide persistence: transient-only vs persistable to ROOT. Persistable lets analyses re-cluster with different thresholds without rebuilding; transient is simpler.
+- [ ] Decide host directory (likely `Offline/RecoDataProducts/{src,inc}/`).
+- [ ] Register the dictionary (`classes.h` + `classes_def.xml`) if persistable.
+
+##### 16d-graph: `CaloHitGraphMaker_module.cc`
+
+- [ ] Add module under `Offline/CaloCluster/src/` — `produce()` builds one `CaloHitGraph` per disk per event, packs them into a `CaloHitGraphCollection`.
+- [ ] Constructor reads norm sidecar (16a) so feature normalisation lives in this module — graph artifact is normalised on emit; the cluster module needs no stats.
+- [ ] FHiCL parameter set: norm sidecar path, graph hyperparameters (`r_max=210`, `dt_max=25`, `k_min=3`, `k_max=20`).
+- [ ] SConscript entry.
+- [ ] Empty stub `produce()` returning an empty collection — gets the build green before 16e logic lands.
+
+##### 16d-cluster: `CaloClusterMakerGNN_module.cc` (model-agnostic, instanced via FHiCL)
+
+Single C++ class. Each FHiCL instance specifies which model to load, what version to expect, and the recipe values for that model. Production declares one instance; A/B studies declare multiple. See `docs/offline_integration.md` §2.2.
+
+- [ ] Add module under `Offline/CaloCluster/src/` — constructor loads ONNX session, reads `metadata_props["model_version"]` and asserts equal to the FHiCL `expected_model_version` (16b), reads `metadata_props["node_features"]`/`["edge_features"]` and asserts equal to the FHiCL feature lists (16j). Member-init order (env → session options → session → IO metadata) documented in a comment block per `ArtAnalysis#4` review feedback.
+- [ ] `produce()` consumes the `CaloHitGraphCollection`, runs ONNX inference per disk, runs cluster assembly (16f), emits `CaloClusterCollection` under the FHiCL `output_instance` name.
+- [ ] FHiCL parameter set:
+  - `model_path` (via `ConfigFileLookupPolicy`)
+  - `expected_model_version` (string; `metadata_props` assertion)
+  - `expected_node_features`, `expected_edge_features` (string lists; `metadata_props` assertion)
+  - `output_instance` (string; default `"GNN"` for single-model production)
+  - recipe values: `tau_edge` (model-specific: `0.20` for CCN, `0.26` for SEN), `bfs_expand_cut=10.0`, `min_hits=2`, `min_energy_mev=10.0`
+- [ ] SConscript entry — single `'onnxruntime'` dependency line per `ArtAnalysis#4` pattern, against the central muse install (`u092`).
+- [ ] Empty stub `produce()` returning an empty collection — gets the build green before 16f logic lands.
+- [ ] Decide whether to consume Sophie's generic ONNX utils (session loader, sidecar reader, version check) once those exist, or roll our own.
+
+#### 16e: Graph construction in C++ (called from 16d-graph)
+
+**Goal:** Port `src/data/graph_builder.py` to C++ as `Offline/CaloCluster/{src,inc}/GnnGraphBuilder.{cc,hh}`; output `(x, edge_index, edge_attr)` tensors matching the ONNX interface. Lives behind `CaloHitGraphMaker` (16d-graph).
+
+- [ ] Implement per-disk hit collection from `CaloHitCollection`.
+- [ ] Implement node-feature computation (6 features per `docs/onnx_deployment.md` §3 tables).
+- [ ] Implement adjacency: **brute-force pairwise distance loop** with `r_max=210 mm` cut (decided pre-meeting; faithful to `scipy.spatial.cKDTree` behaviour, O(N²) is cheap at N≤~65).
+- [ ] Time filter (`|dt|<25 ns`), kNN fallback (`k_min=3`), degree cap (`k_max=20`).
+- [ ] Edge-feature computation (8 features).
+- [ ] Z-score normalisation using sidecar stats from 16a — emit normalised tensors so the cluster module needs no stats.
+
+#### 16f: Cluster assembly in C++ (called from 16d-cluster)
+
+**Goal:** Port `src/inference/cluster_reco.py` (`reconstruct_clusters` / `_bfs_expand_cut`) to C++; consume ONNX edge logits + the `CaloHitGraph` from 16d-graph, emit `CaloClusterCollection`. Lives behind `CaloClusterMakerGNN` (16d-cluster).
+
+- [ ] Sigmoid + symmetrise directed scores.
+- [ ] Threshold + adjacency-list build.
+- [ ] BFS traversal with `bfs_expand_cut=10 MeV` ExpandCut, seeded by descending hit energy.
+- [ ] Cleanup (`min_hits=2`, `min_energy_mev=10`) + contiguous re-labelling.
+- [ ] Per-cluster postprocessing (energy = Σ eDep, energy-weighted centroid, seed-hit time) matching Offline `CaloCluster` convention. Cluster→hit references resolved through the graph product's per-node `art::Ptr<CaloHit>`.
+
+#### 16g: C++↔Python parity validation (two-stage + end-to-end)
+
+**Goal:** Prove the C++ pipeline reproduces Python edge logits and cluster labels to documented tolerance on the val set. Split design adds a graph-product parity check at the module boundary.
+
+- [ ] Dump val graph inputs (`x_raw`, `edge_index`, `edge_attr_raw`, hit energies) and Python-side `CaloHitGraph` payloads from the Python pipeline to a portable format (numpy `.npy` or text).
+- [ ] Stage 1 — graph maker parity: feed raw `CaloHit`s through `CaloHitGraphMaker`, compare emitted `CaloHitGraph` tensors against Python (bit-exact on `edge_index`, ~1e-6 on float tensors).
+- [ ] Stage 2 — cluster maker parity: feed Python `CaloHitGraph` payloads through `CaloClusterMakerGNN`, compare emitted edge logits + cluster labels (`edge_logits` max abs diff ~1e-5; cluster labels byte-identical, matching the §6 parity bar from `docs/onnx_deployment.md`).
+- [ ] Stage 3 — end-to-end: Stage 1 output piped into Stage 2 in the same job, same bounds.
+- [ ] Fail loudly if any bound is exceeded.
+
+#### 16h: Production FHiCL wiring
+
+**Goal:** Hook both new producers into the production sequence alongside the existing BFS `CaloClusterMaker` — both clustering chains run, neither is removed.
+
+- [ ] Add `CaloHitGraphMaker` to the reco sequence downstream of `CaloHitMaker` (same input as `CaloClusterMaker`).
+- [ ] Add `CaloClusterMakerGNN` immediately after, consuming the `CaloHitGraphCollection`. BFS module untouched.
+- [ ] Use a distinct instance name (`"GNN"`) on the GNN output `CaloClusterCollection` so downstream consumers select via `(module_label, instance_name)`.
+- [ ] Document the FHiCL switch for downstream analyzers/consumers — which `(label, instance)` is BFS vs GNN, and the new graph-product label for studies that want it.
+- [ ] Smoke-test on a small art file end-to-end: confirm both `CaloClusterCollection` outputs are present and non-empty, and the `CaloHitGraphCollection` is present.
+- [ ] Note for the calorimeter group: this introduces a small CPU overhead (ONNX inference is fast — ~12.5× faster than PyTorch/CPU per the §6 parity test — but the BFS is also still running). Not a default-chain change beyond adding the two GNN producers.
+
+#### 16i: Export SimpleEdgeNet to ONNX
+
+**Goal:** Produce a second deployable `.onnx` artifact so production FCLs can swap models without code changes (see `docs/offline_integration.md` §2.2). Mirrors 15a–15c for the `SimpleEdgeNet` checkpoint.
+
+- [ ] Add `src/models/simple_edge_net_deploy.py` — `SimpleEdgeNetDeploy` wrapper. SEN has no node head, so the wrapper is a thin pass-through that returns `edge_logits` as a plain tensor (not a dict). Classmethod `from_checkpoint(path)` rebuilds the full model from run-dir `config.yaml` and loads weights.
+- [ ] Unit tests in `tests/test_simple_edge_net_deploy.py` — output type/shape/dtype, eval-mode determinism, dynamic graph sizes, parity against the original `SimpleEdgeNet` on synthetic + real packed val graphs.
+- [ ] Update `scripts/export_onnx.py` (or fork into `scripts/export_onnx_sen.py`) to support `--model {ccn,sen}` selection. Default model_version `simple-edge-net-v2`. Output `outputs/onnx/simple_edge_net_v2.onnx`.
+- [ ] Run parity: `scripts/validate_onnx.py --model sen --checkpoint ...` over the val split, max abs diff target 1e-5, zero threshold flips at `tau_edge=0.26`.
+- [ ] Document the SEN artifact in `docs/onnx_deployment.md` §1 (model artifact table).
+
+#### 16j: Feature-spec `metadata_props` + graph-maker handshake
+
+**Goal:** Extend 16b's `metadata_props` with `node_features` and `edge_features` strings, so the cluster module can validate at job start that the loaded model expects exactly the features the graph maker is wired to emit. Catches silent wiring drift if anyone later trains with a different feature set.
+
+- [x] `scripts/export_onnx.py` writes `metadata_props["node_features"] = "log_e,t,x,y,r,e_rel"` and `["edge_features"] = "dx,dy,d,dt,dlog_e,asym_e,logsum_e,dr"` alongside `model_version` (one combined `stamp_metadata_props()` call).
+- [x] Documented in `docs/onnx_deployment.md` §7 (the deployment-contract section), with the validation table linking FHiCL ↔ ONNX ↔ graph-maker.
+- [x] Tests cover the canonical-name agreement between `scripts/export_onnx.py` and `scripts/export_norm_stats.py` (one source of truth — drift between them would now break a test).
+- [ ] In `CaloClusterMakerGNN` (16d-cluster) constructor: read `metadata_props["node_features"]` / `["edge_features"]` from the loaded session; assert string-equal to the FHiCL `expected_node_features` / `expected_edge_features`. Mismatch → abort job with a clear error before the first event.
+- [ ] In `CaloHitGraphMaker` (16d-graph) FHiCL: expose `node_features` / `edge_features` parameters whose values are the canonical names; emit tensors in that order; default values match the train-time spec from `data/normalization_stats.pt`.
+
+---
+
+### Milestone K — C++ Offline Integration
+
+- [x] 16a: Normalisation sidecar exported and documented
+- [x] 16b: Version-string guard wired into `metadata_props` + spec (Python side complete; C++ session-load assertion lands with 16d-cluster)
+- [x] 16c: ONNX integration meeting held 2026-04-29 — split design, central muse onnxruntime via `u092`, `metadata_props` version carrier, repo `Offline/CaloCluster/` confirmed; ownership split still to settle
+- [ ] 16d: Graph + cluster EDProducers + `CaloHitGraph` data product scaffolded (cluster module is model-agnostic, instanced via FHiCL)
+- [ ] 16e: Graph construction implemented inside `CaloHitGraphMaker`
+- [ ] 16f: Cluster assembly implemented inside `CaloClusterMakerGNN`
+- [ ] 16g: C++↔Python parity validated to 1e-5 on val set (graph product + cluster output + end-to-end), cluster labels byte-identical
+- [ ] 16h: Both new producers wired into production FHiCL and smoke-tested
+- [ ] 16i: SimpleEdgeNet exported to ONNX and validated for parity, deployable alongside CCN
+- [ ] 16j: `metadata_props` carries `node_features` / `edge_features` (Python side complete); graph maker ↔ cluster module handshake at job start (C++ side, with 16d)
+
+---
+
 ## Notes
 
 - **PyG environment:** `pyenv` is a shell function; scripts must `source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh` before calling it. The `mu2einit` alias only works in interactive shells. All required packages confirmed in `ana 2.6.1`.
