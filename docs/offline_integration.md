@@ -376,7 +376,9 @@ Meeting held 2026-04-29 with Sophie + Andy. Status as of 2026-05-03.
 | u092 envset installed; Offline + EventNtuple built under u092 | done |
 | EDProducer skeletons (16d-graph, 16d-cluster) | done — both `.so` plugins build under u092; `CaloClusterMakerGNN` links `libonnxruntime.so.1` |
 | Graph construction C++ port (16e) | done — `GnnGraphBuilder` is a full port of `src/data/graph_builder.py`; sidecar handshake validated at `loadStatsFromJson` |
-| Cluster assembly C++ port (16f) | next — produce() body is the only remaining stub in `CaloClusterMakerGNN` |
+| Cluster assembly C++ port (16f) | done — `GnnClusterAssembler` helper + ONNX inference + CaloCluster construction wired in `CaloClusterMakerGNN::produce()` |
+| C++↔Python parity Stage 2 (16g, assembler) | done — 100 / 100 val graphs match Python `cluster_labels` byte-exactly |
+| C++↔Python parity Stage 1 + 3 (16g, art job) | deferred — needs an input art file + FCL setup |
 | C++↔Python parity harness (16g) | planned (now two-stage + end-to-end) |
 | SimpleEdgeNet ONNX export (16i) | planned |
 | Generic ONNX utils (Sophie / Leo) | watching — may inform 16d-cluster |

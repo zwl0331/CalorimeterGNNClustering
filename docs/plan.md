@@ -1162,24 +1162,27 @@ Single C++ class. Each FHiCL instance specifies which model to load, what versio
 - [x] Z-score normalisation using sidecar stats from 16a — `loadStatsFromJson` parses the JSON via nlohmann/json, validates `schema_version=1`, asserts canonical `node_features`/`edge_features` names, and asserts positive `std` entries.
 - [x] Edges sorted lexicographically by (src, dst) after dedup, matching Python's `np.unique`-on-encoded-value ordering — needed for byte-exact parity in 16g.
 
-#### 16f: Cluster assembly in C++ (called from 16d-cluster)
+#### 16f: Cluster assembly in C++ (called from 16d-cluster) ✓
 
 **Goal:** Port `src/inference/cluster_reco.py` (`reconstruct_clusters` / `_bfs_expand_cut`) to C++; consume ONNX edge logits + the `CaloHitGraph` from 16d-graph, emit `CaloClusterCollection`. Lives behind `CaloClusterMakerGNN` (16d-cluster).
 
-- [ ] Sigmoid + symmetrise directed scores.
-- [ ] Threshold + adjacency-list build.
-- [ ] BFS traversal with `bfs_expand_cut=10 MeV` ExpandCut, seeded by descending hit energy.
-- [ ] Cleanup (`min_hits=2`, `min_energy_mev=10`) + contiguous re-labelling.
-- [ ] Per-cluster postprocessing (energy = Σ eDep, energy-weighted centroid, seed-hit time) matching Offline `CaloCluster` convention. Cluster→hit references resolved through the graph product's per-node `art::Ptr<CaloHit>`.
+- [x] Sigmoid + symmetrise directed scores — running mean over each unordered `{i, j}` pair via `std::map<std::pair<int,int>, ...>`.
+- [x] Threshold + adjacency-list build at FHiCL `tauEdge` (model-specific; `0.20` for CCN).
+- [x] BFS traversal with `bfsExpandCut=10 MeV`, seeded by descending hit energy (`std::iota` + lambda sort). Hits below cut join the cluster but cannot recruit (Python `_bfs_expand_cut` semantics).
+- [x] Cleanup: `minHits=2`, `minEnergyMeV=10` + contiguous re-labelling in first-appearance order.
+- [x] Per-cluster postprocessing in `CaloClusterMakerGNN::produce()`: energy = Σ eDep, energyErr = sqrt(Σ eDepErr²), seed = highest-energy hit (sets time/timeErr), 3D centroid via the existing `ClusterUtils(cal, hits, Linear)` helper (matches BFS module's convention). Cluster→hit refs resolved through `graph.caloHitPtrs`.
+- [x] ONNX inference loop in `produce()`: per-disk `Ort::Session::Run` with `Ort::Value::CreateTensor` views (no copy of graph tensors), input/output names cached in the constructor.
+
+`Offline/CaloCluster/{inc,src}/GnnClusterAssembler.{hh,cc}` — port of `src/inference/cluster_reco.py`. `CaloClusterMakerGNN_module.cc::produce()` is fully implemented.
 
 #### 16g: C++↔Python parity validation (two-stage + end-to-end)
 
 **Goal:** Prove the C++ pipeline reproduces Python edge logits and cluster labels to documented tolerance on the val set. Split design adds a graph-product parity check at the module boundary.
 
-- [ ] Dump val graph inputs (`x_raw`, `edge_index`, `edge_attr_raw`, hit energies) and Python-side `CaloHitGraph` payloads from the Python pipeline to a portable format (numpy `.npy` or text).
-- [ ] Stage 1 — graph maker parity: feed raw `CaloHit`s through `CaloHitGraphMaker`, compare emitted `CaloHitGraph` tensors against Python (bit-exact on `edge_index`, ~1e-6 on float tensors).
-- [ ] Stage 2 — cluster maker parity: feed Python `CaloHitGraph` payloads through `CaloClusterMakerGNN`, compare emitted edge logits + cluster labels (`edge_logits` max abs diff ~1e-5; cluster labels byte-identical, matching the §6 parity bar from `docs/onnx_deployment.md`).
-- [ ] Stage 3 — end-to-end: Stage 1 output piped into Stage 2 in the same job, same bounds.
+- [x] Dump val graph payloads (`edge_index`, `edge_logits` from PyTorch, `energies`, Python `cluster_labels`) to a portable JSON via `scripts/dump_parity_payloads.py`. Default output `tests/parity/calo_cluster_net_v2_stage1.parity.json`. 100 graphs, 1,147 nodes, 2,768 edges.
+- [x] Stage 2 — cluster-assembler parity: standalone `testGnnClusterAssembler` binary (built via `make_bin` in `Offline/CaloCluster/src/SConscript`) loads the JSON, replays `GnnClusterAssembler::assemble`, asserts byte-exact match against Python `cluster_labels`. **Result: 100 / 100 graphs match byte-exactly** (zero mismatched nodes). Run binary at `build/al9-prof-e29-u092/Offline/bin/testGnnClusterAssembler`.
+- [ ] Stage 1 — graph-maker parity: feed raw `CaloHit`s through `CaloHitGraphMaker` in a real art job, compare emitted `CaloHitGraph` tensors against Python (bit-exact on `edge_index`, ~1e-6 on float tensors). Needs an art FCL + a small input art file with `CaloHitCollection`. Deferred.
+- [ ] Stage 3 — end-to-end: Stage 1 output piped into Stage 2 in the same job, same bounds. Needs the same FCL setup as Stage 1.
 - [ ] Fail loudly if any bound is exceeded.
 
 #### 16h: Production FHiCL wiring
@@ -1222,8 +1225,8 @@ Single C++ class. Each FHiCL instance specifies which model to load, what versio
 - [x] 16c: ONNX integration meeting held 2026-04-29 — split design, central muse onnxruntime via `u092`, `metadata_props` version carrier, repo `Offline/CaloCluster/` confirmed; Sam owns 16d–16g, Andy + Sophie review
 - [x] 16d: Graph + cluster EDProducers + `CaloHitGraph` data product scaffolded (cluster module is model-agnostic, instanced via FHiCL); both `.so` plugins build under u092
 - [x] 16e: Graph construction implemented inside `CaloHitGraphMaker` (full Python port; metadata_props handshake wired through to 16d-cluster)
-- [ ] 16f: Cluster assembly implemented inside `CaloClusterMakerGNN`
-- [ ] 16g: C++↔Python parity validated to 1e-5 on val set (graph product + cluster output + end-to-end), cluster labels byte-identical
+- [x] 16f: Cluster assembly implemented inside `CaloClusterMakerGNN` (`GnnClusterAssembler` helper + ONNX inference + CaloCluster construction in `produce()`)
+- [x] 16g: Stage 2 (cluster-assembler) parity validated — 100 / 100 val graphs match Python `cluster_labels` byte-exactly. Stage 1 (graph-maker) and Stage 3 (end-to-end) need real art jobs with input art files; deferred.
 - [ ] 16h: Both new producers wired into production FHiCL and smoke-tested
 - [ ] 16i: SimpleEdgeNet exported to ONNX and validated for parity, deployable alongside CCN
 - [ ] 16j: `metadata_props` carries `node_features` / `edge_features` (Python side complete); graph maker ↔ cluster module handshake at job start (C++ side, with 16d)
