@@ -1117,51 +1117,50 @@ Results in `outputs/cluster_physics_eval_bfs_test/`.
 - **PR sequencing:** EventNtuple `ancestorSimIds` patch must land in `Mu2e/EventNtuple` before any Offline PR depending on the branch (Sophie asked for the PR 2026-04-30).
 - **Training repo:** Sophie pointed at `Mu2e/MLTrain` for training code. Not a deployment blocker but tracks alongside.
 
-#### 16d: art::EDProducer skeletons (split design)
+#### 16d: art::EDProducer skeletons (split design) ✓
 
 **Goal:** Stand up two new EDProducers and one new data product following Andy's `ArtAnalysis#4` pattern. The graph producer builds the per-disk graph; the cluster producer loads the ONNX session at construction and consumes the graph product.
 
-##### 16d-product: `CaloHitGraph` data product
+##### 16d-product: `CaloHitGraph` data product ✓
 
-- [ ] Decide schema: tensors (`x` flat float, `edge_index` flat int64, `edge_attr` flat float) + per-node `art::Ptr<CaloHit>` back-references + `(N, E)` shape headers. One entry per disk per event.
-- [ ] Decide persistence: transient-only vs persistable to ROOT. Persistable lets analyses re-cluster with different thresholds without rebuilding; transient is simpler.
-- [ ] Decide host directory (likely `Offline/RecoDataProducts/{src,inc}/`).
-- [ ] Register the dictionary (`classes.h` + `classes_def.xml`) if persistable.
+- [x] Schema: flat tensors `x` (`std::vector<float>`, length 6N), `edge_index` (`std::vector<int64_t>`, length 2E), `edge_attr` (`std::vector<float>`, length 8E), plus `(N, E)` headers and per-node `std::vector<art::Ptr<CaloHit>>` back-references.
+- [x] Persistence: transient — declared via `produces<CaloHitGraphCollection>()` in `CaloHitGraphMaker`, no `classes_def.xml` registration.
+- [x] Host directory: `Offline/RecoDataProducts/inc/CaloHitGraph.hh` (header-only).
 
-##### 16d-graph: `CaloHitGraphMaker_module.cc`
+##### 16d-graph: `CaloHitGraphMaker_module.cc` ✓
 
-- [ ] Add module under `Offline/CaloCluster/src/` — `produce()` builds one `CaloHitGraph` per disk per event, packs them into a `CaloHitGraphCollection`.
-- [ ] Constructor reads norm sidecar (16a) so feature normalisation lives in this module — graph artifact is normalised on emit; the cluster module needs no stats.
-- [ ] FHiCL parameter set: norm sidecar path, graph hyperparameters (`r_max=210`, `dt_max=25`, `k_min=3`, `k_max=20`).
-- [ ] SConscript entry.
-- [ ] Empty stub `produce()` returning an empty collection — gets the build green before 16e logic lands.
+- [x] Added at `Offline/CaloCluster/src/CaloHitGraphMaker_module.cc` — `produce()` partitions the input `CaloHitCollection` by disk and runs `GnnGraphBuilder` once per disk; emits a `CaloHitGraphCollection` (one entry per disk that has hits).
+- [x] Constructor reads the norm sidecar (`Offline/ConfigTools/inc/ConfigFileLookupPolicy.hh` → resolved path → `GnnGraphBuilder::loadStatsFromJson`) so the emitted tensors are already z-score normalised.
+- [x] FHiCL parameter set: `caloHitCollection`, `normSidecar` (resolved by `ConfigFileLookupPolicy`), graph hyperparameters (`rMax=210`, `dtMax=25`, `kMin=3`, `kMax=20`).
+- [x] SConscript: auto-picked up by `helper.make_plugins`. Builds `libmu2e_CaloCluster_CaloHitGraphMaker_module.so`.
+- [x] `produce()` is fully implemented (graph construction is in 16e); not stubbed.
 
-##### 16d-cluster: `CaloClusterMakerGNN_module.cc` (model-agnostic, instanced via FHiCL)
+##### 16d-cluster: `CaloClusterMakerGNN_module.cc` (model-agnostic, instanced via FHiCL) ✓
 
 Single C++ class. Each FHiCL instance specifies which model to load, what version to expect, and the recipe values for that model. Production declares one instance; A/B studies declare multiple. See `docs/offline_integration.md` §2.2.
 
-- [ ] Add module under `Offline/CaloCluster/src/` — constructor loads ONNX session, reads `metadata_props["model_version"]` and asserts equal to the FHiCL `expected_model_version` (16b), reads `metadata_props["node_features"]`/`["edge_features"]` and asserts equal to the FHiCL feature lists (16j). Member-init order (env → session options → session → IO metadata) documented in a comment block per `ArtAnalysis#4` review feedback.
-- [ ] `produce()` consumes the `CaloHitGraphCollection`, runs ONNX inference per disk, runs cluster assembly (16f), emits `CaloClusterCollection` under the FHiCL `output_instance` name.
-- [ ] FHiCL parameter set:
-  - `model_path` (via `ConfigFileLookupPolicy`)
-  - `expected_model_version` (string; `metadata_props` assertion)
-  - `expected_node_features`, `expected_edge_features` (string lists; `metadata_props` assertion)
-  - `output_instance` (string; default `"GNN"` for single-model production)
-  - recipe values: `tau_edge` (model-specific: `0.20` for CCN, `0.26` for SEN), `bfs_expand_cut=10.0`, `min_hits=2`, `min_energy_mev=10.0`
-- [ ] SConscript entry — single `'onnxruntime'` dependency line per `ArtAnalysis#4` pattern, against the central muse install (`u092`).
-- [ ] Empty stub `produce()` returning an empty collection — gets the build green before 16f logic lands.
-- [ ] Decide whether to consume Sophie's generic ONNX utils (session loader, sidecar reader, version check) once those exist, or roll our own.
+- [x] Added at `Offline/CaloCluster/src/CaloClusterMakerGNN_module.cc` — constructor loads ONNX session via the C++ API (`Ort::Env`, `Ort::SessionOptions`, `Ort::Session`, `Ort::AllocatorWithDefaultOptions`), reads `metadata_props["model_version"]` and asserts equal to FHiCL `expectedModelVersion` (16b); reads `metadata_props["node_features"]`/`["edge_features"]`, splits on commas, and asserts equal to the FHiCL `expectedNodeFeatures`/`expectedEdgeFeatures` lists (16j). Member-declaration order (`env_` → `sessionOptions_` → `session_` → `allocator_`) documented in the header.
+- [x] FHiCL parameter set:
+  - `modelPath` (resolved by `ConfigFileLookupPolicy`)
+  - `expectedModelVersion` (string; `metadata_props` assertion)
+  - `expectedNodeFeatures`, `expectedEdgeFeatures` (string lists; `metadata_props` assertion)
+  - `outputInstance` (string; default `"GNN"`)
+  - recipe values: `tauEdge` (no default — must be set per model), `bfsExpandCut=10.0`, `minHits=2`, `minEnergyMeV=10.0`
+- [x] SConscript: added `'onnxruntime'` to plugin deps. `ldd` confirms the built `.so` links against `libonnxruntime.so.1`.
+- [x] `produce()` consumes the `CaloHitGraphCollection` and emits an empty `CaloClusterCollection` under `outputInstance` — full inference + CCN+BFS10 assembly lands with 16f.
+- [ ] Decide whether to consume Sophie's generic ONNX utils (session loader, sidecar reader, version check) once those exist, or keep the rolled-our-own version.
 
-#### 16e: Graph construction in C++ (called from 16d-graph)
+#### 16e: Graph construction in C++ (called from 16d-graph) ✓
 
 **Goal:** Port `src/data/graph_builder.py` to C++ as `Offline/CaloCluster/{src,inc}/GnnGraphBuilder.{cc,hh}`; output `(x, edge_index, edge_attr)` tensors matching the ONNX interface. Lives behind `CaloHitGraphMaker` (16d-graph).
 
-- [ ] Implement per-disk hit collection from `CaloHitCollection`.
-- [ ] Implement node-feature computation (6 features per `docs/onnx_deployment.md` §3 tables).
-- [ ] Implement adjacency: **brute-force pairwise distance loop** with `r_max=210 mm` cut (decided pre-meeting; faithful to `scipy.spatial.cKDTree` behaviour, O(N²) is cheap at N≤~65).
-- [ ] Time filter (`|dt|<25 ns`), kNN fallback (`k_min=3`), degree cap (`k_max=20`).
-- [ ] Edge-feature computation (8 features).
-- [ ] Z-score normalisation using sidecar stats from 16a — emit normalised tensors so the cluster module needs no stats.
+- [x] Per-disk hit collection from `CaloHitCollection` (looked up via `Calorimeter::crystal(crystalID).diskID()` and `localPosition()`).
+- [x] Node-feature computation (6 features per `docs/onnx_deployment.md` §3 tables).
+- [x] Adjacency: brute-force pairwise distance loop with `r_max=210 mm` cut (faithful to `scipy.spatial.cKDTree` behaviour at N ≤ ~65).
+- [x] Time filter (`|dt|<25 ns`), kNN fallback (`k_min=3`, mirrors Python's `k_query = min(k_min*3, n)` semantics including the self-skip behaviour), degree cap (`k_max=20` nearest-by-distance).
+- [x] Edge-feature computation (8 features).
+- [x] Z-score normalisation using sidecar stats from 16a — `loadStatsFromJson` parses the JSON via nlohmann/json, validates `schema_version=1`, asserts canonical `node_features`/`edge_features` names, and asserts positive `std` entries.
+- [x] Edges sorted lexicographically by (src, dst) after dedup, matching Python's `np.unique`-on-encoded-value ordering — needed for byte-exact parity in 16g.
 
 #### 16f: Cluster assembly in C++ (called from 16d-cluster)
 
@@ -1221,8 +1220,8 @@ Single C++ class. Each FHiCL instance specifies which model to load, what versio
 - [x] 16a: Normalisation sidecar exported and documented
 - [x] 16b: Version-string guard wired into `metadata_props` + spec (Python side complete; C++ session-load assertion lands with 16d-cluster)
 - [x] 16c: ONNX integration meeting held 2026-04-29 — split design, central muse onnxruntime via `u092`, `metadata_props` version carrier, repo `Offline/CaloCluster/` confirmed; Sam owns 16d–16g, Andy + Sophie review
-- [ ] 16d: Graph + cluster EDProducers + `CaloHitGraph` data product scaffolded (cluster module is model-agnostic, instanced via FHiCL)
-- [ ] 16e: Graph construction implemented inside `CaloHitGraphMaker`
+- [x] 16d: Graph + cluster EDProducers + `CaloHitGraph` data product scaffolded (cluster module is model-agnostic, instanced via FHiCL); both `.so` plugins build under u092
+- [x] 16e: Graph construction implemented inside `CaloHitGraphMaker` (full Python port; metadata_props handshake wired through to 16d-cluster)
 - [ ] 16f: Cluster assembly implemented inside `CaloClusterMakerGNN`
 - [ ] 16g: C++↔Python parity validated to 1e-5 on val set (graph product + cluster output + end-to-end), cluster labels byte-identical
 - [ ] 16h: Both new producers wired into production FHiCL and smoke-tested

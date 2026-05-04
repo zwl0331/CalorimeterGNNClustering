@@ -374,9 +374,9 @@ Meeting held 2026-04-29 with Sophie + Andy. Status as of 2026-05-03.
 | Module-class swappability (§2.2 sub) | DECIDED — single model-agnostic `CaloClusterMakerGNN`, instanced via FHiCL |
 | Ownership split (§2.8) | DECIDED — Sam writes 16d–16g; Andy + Sophie review |
 | u092 envset installed; Offline + EventNtuple built under u092 | done |
-| EDProducer skeletons (16d-graph, 16d-cluster) | unblocked, ready to start |
-| Graph construction C++ port (16e) | planned |
-| Cluster assembly C++ port (16f) | planned |
+| EDProducer skeletons (16d-graph, 16d-cluster) | done — both `.so` plugins build under u092; `CaloClusterMakerGNN` links `libonnxruntime.so.1` |
+| Graph construction C++ port (16e) | done — `GnnGraphBuilder` is a full port of `src/data/graph_builder.py`; sidecar handshake validated at `loadStatsFromJson` |
+| Cluster assembly C++ port (16f) | next — produce() body is the only remaining stub in `CaloClusterMakerGNN` |
 | C++↔Python parity harness (16g) | planned (now two-stage + end-to-end) |
 | SimpleEdgeNet ONNX export (16i) | planned |
 | Generic ONNX utils (Sophie / Leo) | watching — may inform 16d-cluster |
