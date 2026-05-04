@@ -30,6 +30,31 @@ import onnxruntime as ort
 import torch
 
 from src.models.calo_cluster_net_deploy import CaloClusterNetDeploy
+from src.models.simple_edge_net_deploy import SimpleEdgeNetDeploy
+
+
+# Per-model presets matching scripts/export_onnx.py.
+# `tol` is the max-abs-diff bar on raw logits. CCN's logits fall in
+# [-5, +0] so 1e-5 is tight; SEN's logits are large-negative (~-1k to
+# -3k) so the same arithmetic precision shows up as ~1e-3 abs error.
+# What's load-bearing for cluster-reco correctness is the
+# "threshold-flips at tau_edge" line, which must be zero for both.
+_PRESETS = {
+    "ccn": {
+        "wrapper":    CaloClusterNetDeploy,
+        "checkpoint": Path("outputs/runs/calo_cluster_net_v2_stage1/checkpoints/best_model.pt"),
+        "onnx":       Path("outputs/onnx/calo_cluster_net_v2_stage1.onnx"),
+        "tau_edge":   0.20,
+        "tol":        1e-5,
+    },
+    "sen": {
+        "wrapper":    SimpleEdgeNetDeploy,
+        "checkpoint": Path("outputs/runs/simple_edge_net_v2/checkpoints/best_model.pt"),
+        "onnx":       Path("outputs/onnx/simple_edge_net_v2.onnx"),
+        "tau_edge":   0.26,
+        "tol":        5e-3,
+    },
+}
 
 
 def _sigmoid(x: np.ndarray) -> np.ndarray:
@@ -39,24 +64,32 @@ def _sigmoid(x: np.ndarray) -> np.ndarray:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument(
-        "--checkpoint", type=Path,
-        default=Path("outputs/runs/calo_cluster_net_v2_stage1/checkpoints/best_model.pt"),
+        "--model", choices=sorted(_PRESETS), default="ccn",
+        help="Which model to validate. 'ccn' = CaloClusterNet (default); "
+             "'sen' = SimpleEdgeNet.",
     )
     parser.add_argument(
-        "--onnx", type=Path,
-        default=Path("outputs/onnx/calo_cluster_net_v2_stage1.onnx"),
+        "--checkpoint", type=Path, default=None,
+        help="Checkpoint path; defaults to the preset for --model.",
+    )
+    parser.add_argument(
+        "--onnx", type=Path, default=None,
+        help=".onnx path; defaults to the preset for --model.",
     )
     parser.add_argument(
         "--val-pt", type=Path, default=Path("data/processed/val.pt"),
     )
     parser.add_argument(
-        "--tol", type=float, default=1e-5,
-        help="Max allowable abs diff in edge logits. Default 1e-5.",
+        "--tol", type=float, default=None,
+        help="Max allowable abs diff in edge logits. "
+             "Defaults to the preset for --model "
+             "(CCN: 1e-5, SEN: 5e-3 -- SEN's raw logits are ~1000x larger).",
     )
     parser.add_argument(
-        "--tau-edge", type=float, default=0.20,
+        "--tau-edge", type=float, default=None,
         help="Edge threshold for the decision-flip proxy. "
-             "Default 0.20 (v2_stage1 frozen value).",
+             "Defaults to the preset for --model "
+             "(CCN: 0.20, SEN: 0.26).",
     )
     parser.add_argument(
         "--n-graphs", type=int, default=None,
@@ -64,13 +97,20 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    preset = _PRESETS[args.model]
+    if args.checkpoint is None: args.checkpoint = preset["checkpoint"]
+    if args.onnx       is None: args.onnx       = preset["onnx"]
+    if args.tau_edge   is None: args.tau_edge   = preset["tau_edge"]
+    if args.tol        is None: args.tol        = preset["tol"]
+    Wrapper = preset["wrapper"]
+
     if not args.onnx.exists():
         print(f"ONNX model not found: {args.onnx}", file=sys.stderr)
         print("Run scripts/export_onnx.py first (15b).", file=sys.stderr)
         return 2
 
-    print(f"PyTorch checkpoint: {args.checkpoint}")
-    model = CaloClusterNetDeploy.from_checkpoint(args.checkpoint)
+    print(f"PyTorch checkpoint: {args.checkpoint}  (model={args.model})")
+    model = Wrapper.from_checkpoint(args.checkpoint)
 
     print(f"ONNX model:         {args.onnx}")
     sess = ort.InferenceSession(str(args.onnx), providers=["CPUExecutionProvider"])

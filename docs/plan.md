@@ -1191,16 +1191,24 @@ mu2e -c Offline/CaloCluster/fcl/from_mcs-gnn-test.fcl \
 python3 scripts/compare_parity_dump.py parity_dump.root
 ```
 
-#### 16h: Production FHiCL wiring
+#### 16h: Production FHiCL wiring ✓
 
-**Goal:** Hook both new producers into the production sequence alongside the existing BFS `CaloClusterMaker` — both clustering chains run, neither is removed.
+**Goal:** Hook both new producers into the production sequence alongside the existing BFS `CaloClusterMaker` -- both clustering chains run, neither is removed.
 
-- [ ] Add `CaloHitGraphMaker` to the reco sequence downstream of `CaloHitMaker` (same input as `CaloClusterMaker`).
-- [ ] Add `CaloClusterMakerGNN` immediately after, consuming the `CaloHitGraphCollection`. BFS module untouched.
-- [ ] Use a distinct instance name (`"GNN"`) on the GNN output `CaloClusterCollection` so downstream consumers select via `(module_label, instance_name)`.
-- [ ] Document the FHiCL switch for downstream analyzers/consumers — which `(label, instance)` is BFS vs GNN, and the new graph-product label for studies that want it.
-- [ ] Smoke-test on a small art file end-to-end: confirm both `CaloClusterCollection` outputs are present and non-empty, and the `CaloHitGraphCollection` is present.
-- [ ] Note for the calorimeter group: this introduces a small CPU overhead (ONNX inference is fast — ~12.5× faster than PyTorch/CPU per the §6 parity test — but the BFS is also still running). Not a default-chain change beyond adding the two GNN producers.
+- [x] `Offline/CaloCluster/fcl/prolog.fcl` extended with a `CaloClusterGNN` block that defines `caloHitGraphMakerGNN` + `caloClusterMakerGNN` ready to drop into any reco sequence (`@local::CaloClusterGNN.caloHitGraphMakerGNN`, `@local::CaloClusterGNN.caloClusterMakerGNN`, or the `@sequence::CaloClusterGNN.Reco` bundle).
+- [x] `Offline/CaloCluster/fcl/from_mcs-gnn-prod.fcl` -- production-style FCL that runs the GNN chain on MCS art-format input and emits an output art file with the new `CaloClusterCollection` under instance `"GNN"`. `CaloHitGraphCollection` is dropped from the output via `outputCommands` (transient by design).
+- [x] Smoke-tested end-to-end on a real MCS file: 5 events produced an art file containing both `mu2e::CaloClusters_CaloClusterMaker__Reconstruct` (existing BFS, carried over) and `mu2e::CaloClusters_caloClusterMakerGNN_GNN_GnnProd` (new GNN). Existing BFS-reading analyses keep working unchanged; GNN consumers select via `(module_label="caloClusterMakerGNN", instance_name="GNN")`.
+- [x] Frozen recipe values baked into the prolog defaults (`tauEdge=0.20`, `bfsExpandCut=10.0`, `minHits=2`, `minEnergyMeV=10.0`); each is FHiCL-overridable for studies and per-instance for swappable models.
+- [x] CPU overhead noted in the prolog comment: ONNX inference at ~0.9 ms/disk-graph, BFS still runs. Not a default-chain change beyond adding the two GNN producers.
+
+#### 16i: Export SimpleEdgeNet to ONNX ✓
+
+**Goal:** Produce a second deployable `.onnx` artifact so production FCLs can swap models without code changes (see `docs/offline_integration.md` §2.2). Mirrors 15a-15c for the `SimpleEdgeNet` checkpoint.
+
+- [x] `src/models/simple_edge_net_deploy.py` -- `SimpleEdgeNetDeploy` wrapper. Composition over inheritance; re-implements the message-passing loop with explicit tensor arguments (no PyG `Data` object needed). Classmethod `from_checkpoint(path)` rebuilds the full model from run-dir `config.yaml` and loads weights.
+- [x] `scripts/export_onnx.py` extended with `--model {ccn,sen}` and per-model presets (checkpoint path, output path, `model_version`). `python3 scripts/export_onnx.py --model sen` writes `outputs/onnx/simple_edge_net_v2.onnx` (0.84 MB) with `metadata_props["model_version"] = "simple-edge-net-v2"` plus the canonical feature-name strings.
+- [x] `scripts/validate_onnx.py` extended with the same `--model` flag and per-model presets (incl. tau_edge and tol). SEN parity over 5,793 val graphs / 166,342 edges: max abs diff **2.44e-03** vs the 5e-3 tol (SEN's raw logits run ~1000x larger in magnitude than CCN's, so the same fp32 precision shows up as a larger absolute number). **Zero threshold flips at `tau_edge=0.26`** -- cluster reconstruction will be byte-identical to PyTorch.
+- [x] `Offline/CaloCluster/data/simple_edge_net_v2.onnx` staged for `ConfigFileLookupPolicy`.
 
 #### 16i: Export SimpleEdgeNet to ONNX
 
@@ -1233,8 +1241,8 @@ python3 scripts/compare_parity_dump.py parity_dump.root
 - [x] 16e: Graph construction implemented inside `CaloHitGraphMaker` (full Python port; metadata_props handshake wired through to 16d-cluster)
 - [x] 16f: Cluster assembly implemented inside `CaloClusterMakerGNN` (`GnnClusterAssembler` helper + ONNX inference + CaloCluster construction in `produce()`)
 - [x] 16g: All stages validated — Stage 2 (assembler-only, 100 val graphs) byte-exact; Stages 1 + 3 (real `mu2e` art job on MCS files, 50 events / 100 disk-graphs / 8,502 hits) byte-exact.
-- [ ] 16h: Both new producers wired into production FHiCL and smoke-tested
-- [ ] 16i: SimpleEdgeNet exported to ONNX and validated for parity, deployable alongside CCN
+- [x] 16h: Both new producers wired into production FHiCL (`prolog.fcl` + `from_mcs-gnn-prod.fcl`) and smoke-tested -- output art file carries both BFS and GNN `CaloClusterCollection`s
+- [x] 16i: SimpleEdgeNet exported (`outputs/onnx/simple_edge_net_v2.onnx`, 0.84 MB) and parity-validated (max abs diff 2.44e-03, zero threshold flips at tau_edge=0.26 over 166K val edges). Deployable alongside CCN via FHiCL.
 - [ ] 16j: `metadata_props` carries `node_features` / `edge_features` (Python side complete); graph maker ↔ cluster module handshake at job start (C++ side, with 16d)
 
 ---

@@ -380,7 +380,8 @@ Meeting held 2026-04-29 with Sophie + Andy. Status as of 2026-05-03.
 | C++↔Python parity Stage 2 (16g, assembler) | done — 100 / 100 val graphs match Python `cluster_labels` byte-exactly |
 | C++↔Python parity Stage 1 + 3 (16g, art job) | done — 50 events / 100 disk-graphs / 8,502 hits byte-exact via `from_mcs-gnn-test.fcl` + `CaloHitGraphParityDump` + `scripts/compare_parity_dump.py` |
 | C++↔Python parity harness (16g) | planned (now two-stage + end-to-end) |
-| SimpleEdgeNet ONNX export (16i) | planned |
+| SimpleEdgeNet ONNX export (16i) | done -- `outputs/onnx/simple_edge_net_v2.onnx` (0.84 MB), parity-validated (zero threshold flips at tau_edge=0.26), staged in `Offline/CaloCluster/data/` |
+| Production FHiCL wiring (16h) | done -- `prolog.fcl` + `from_mcs-gnn-prod.fcl`; smoke-tested with both BFS and GNN `CaloClusterCollection`s in the output art file |
 | Generic ONNX utils (Sophie / Leo) | watching — may inform 16d-cluster |
 | EventNtuple PR for `ancestorSimIds` | requested by Sophie 2026-04-30; pending |
 

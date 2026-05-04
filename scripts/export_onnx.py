@@ -26,6 +26,25 @@ import onnx
 import torch
 
 from src.models.calo_cluster_net_deploy import CaloClusterNetDeploy
+from src.models.simple_edge_net_deploy import SimpleEdgeNetDeploy
+
+# Per-model presets — used when --model is one of the recognised values.
+# Each entry pins the deploy wrapper, the run-dir checkpoint, the output
+# filename, and the version string stamped into metadata_props.
+MODEL_PRESETS = {
+    "ccn": {
+        "wrapper":       CaloClusterNetDeploy,
+        "checkpoint":    Path("outputs/runs/calo_cluster_net_v2_stage1/checkpoints/best_model.pt"),
+        "output":        Path("outputs/onnx/calo_cluster_net_v2_stage1.onnx"),
+        "model_version": "calo-cluster-net-v2-stage1",
+    },
+    "sen": {
+        "wrapper":       SimpleEdgeNetDeploy,
+        "checkpoint":    Path("outputs/runs/simple_edge_net_v2/checkpoints/best_model.pt"),
+        "output":        Path("outputs/onnx/simple_edge_net_v2.onnx"),
+        "model_version": "simple-edge-net-v2",
+    },
+}
 
 # Defaults stamped into the ONNX `metadata_props` map after export. The
 # C++ deployment asserts these at session load (FHiCL passes the
@@ -83,32 +102,44 @@ def pick_example_graph(val_pt_path: Path, min_edges: int = 20):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument(
-        "--checkpoint", type=Path,
-        default=Path("outputs/runs/calo_cluster_net_v2_stage1/checkpoints/best_model.pt"),
+        "--model", choices=sorted(MODEL_PRESETS), default="ccn",
+        help="Which model to export. 'ccn' = CaloClusterNet (default); "
+             "'sen' = SimpleEdgeNet.",
+    )
+    parser.add_argument(
+        "--checkpoint", type=Path, default=None,
+        help="Checkpoint path; defaults to the preset for --model.",
     )
     parser.add_argument(
         "--val-pt", type=Path, default=Path("data/processed/val.pt"),
         help="Packed val graphs for dummy input.",
     )
     parser.add_argument(
-        "--output", type=Path,
-        default=Path("outputs/onnx/calo_cluster_net_v2_stage1.onnx"),
+        "--output", type=Path, default=None,
+        help="Output .onnx path; defaults to the preset for --model.",
     )
     parser.add_argument(
         "--opset", type=int, default=17,
         help="ONNX opset version. 17+ is supported by ONNX Runtime 1.17+.",
     )
     parser.add_argument(
-        "--model-version", type=str, default=DEFAULT_MODEL_VERSION,
+        "--model-version", type=str, default=None,
         help="Stamped into ONNX metadata_props['model_version']. "
-             "C++ asserts this at session load via FHiCL.",
+             "Defaults to the preset for --model. C++ asserts this at "
+             "session load via FHiCL.",
     )
     args = parser.parse_args()
 
+    preset = MODEL_PRESETS[args.model]
+    if args.checkpoint    is None: args.checkpoint    = preset["checkpoint"]
+    if args.output        is None: args.output        = preset["output"]
+    if args.model_version is None: args.model_version = preset["model_version"]
+    Wrapper = preset["wrapper"]
+
     args.output.parent.mkdir(parents=True, exist_ok=True)
 
-    print(f"Loading checkpoint: {args.checkpoint}")
-    model = CaloClusterNetDeploy.from_checkpoint(args.checkpoint)
+    print(f"Loading checkpoint: {args.checkpoint}  (model={args.model})")
+    model = Wrapper.from_checkpoint(args.checkpoint)
     n_params = sum(p.numel() for p in model.parameters())
     print(f"Model: {model.__class__.__name__}  ({n_params:,} params, eval={not model.training})")
 
