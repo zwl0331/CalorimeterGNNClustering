@@ -45,7 +45,8 @@ train:
 
 inference:
   tau_node: 0.5
-  tau_edge: 0.14
+  tau_edge: 0.32          # tuned on MixLow val (was 0.14 on MDC2025, see Task 18e)
+  bfs_expand_cut: 10.0    # MixLow val sweep confirms EC=10 sweet spot (matches §7.3)
   min_hits: 2
   min_energy_mev: 10.0
 
