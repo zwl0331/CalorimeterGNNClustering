@@ -347,6 +347,67 @@ Most features are well-bounded; dt and dist (and to a lesser extent dr) have hea
 
 **Stage-B verdict (limited).** What Stage B *can* establish without truth: the model is not catastrophically broken on MixLow — edge sigmoid scores are decisive (not collapsed to 0.5), edge features mostly stay in MDC2025 z-score range with mild dt/dist tails, and connectivity matches BFS at the cluster-count level. What Stage B *cannot* establish: whether the model's split/merge behavior, completeness, and §7-style fringe-cleanup leverage hold up — those all require ancestry-based truth and only show up in §4.3-style metrics (where bare GNN already differs from BFS by < 1 pp on TMR but halves splits). All meaningful comparison waits on Stage C.
 
+### 5.4 Stage C — truth-aware evaluation on small ancestry sample (2026-05-07)
+
+Reprocessed 3 MCS files of `FlateMinusMixLow-KL/Run1Baf_best_v1_4-001` locally through modified EventNtuple (`from_mcs-calo-only.fcl` + Offline rebuilt today against latest `main` to register the v4 production-target geometry — Run1Baf was produced under a newer Offline release than Run1Bah). Output: 3 v2-style ROOT files at `/exp/mu2e/data/users/wzhou2/GNN/root_files_run1b_mixlow/`, total 7,764 events. Ran `scripts/evaluate_run1b.py` on 3,000 of those (1,000/file) → 5,617 disk-graphs, 98,590 truth clusters.
+
+**Truth-aware evaluation — full table** (calo-entrant truth, MDC2025-trained models, no retraining; bare connected-components vs §7-style CCN+BFS10 post-processing for both GNNs):
+
+| Metric | BFS | SEN (bare) | SEN+BFS10 | CCN (bare) | CCN+BFS10 |
+|---|---|---|---|---|---|
+| Reco clusters | 96,562 | 95,662 | 96,444 | 96,775 | 97,409 |
+| RMR | **98.4%** | 98.3% | 98.2% | 97.8% | 97.6% |
+| TMR | **96.4%** | 95.4% | 96.1% | 96.0% | **96.4%** |
+| Mean purity | **0.9910** | 0.9880 | 0.9896 | 0.9894 | 0.9905 |
+| Mean completeness | 0.9970 | **0.9980** | 0.9972 | 0.9969 | 0.9961 |
+| Splits | **647** | 685 | 821 | 1,222 | 1,403 |
+| Merges | **2,412** | 3,089 | 2,731 | 2,689 | **2,465** |
+
+**Energy-binned TMR with BFS10:** <50 MeV BFS=96.3%, SEN=95.9%, CCN=96.3% (95K of 98K truth clusters); 50–200 MeV all 100.0% (3K).
+
+**Multiplicity-binned TMR with BFS10:** 1-hit BFS=92.7%, SEN=92.4%, **CCN=92.9%** (CCN+BFS10 *beats* BFS in the 1-hit pileup-cluster bin, where 38K of 98K — 39% of truth — live); 2–3 hit BFS=98.7%/SEN=98.3%/CCN=98.5%; 4+ hit BFS=99.4%/SEN=99.1%/CCN=99.2%.
+
+**Comparison vs §4.3 (MDC2025 v2 test, with-field, with-pileup) — best of {bare, +BFS10}:**
+
+| Metric | MDC2025: BFS / SEN / CCN | MixLow: BFS / best-SEN / best-CCN | Change |
+|---|---|---|---|
+| TMR | 94.3 / 94.0 / 94.1 | **96.4** / 96.1 / **96.4** | CCN+BFS10 ties BFS; SEN within 0.3 pp |
+| RMR | 96.5 / 97.1 / 97.1 | **98.4** / 98.3 / 97.8 | GNN advantage erased (was +0.6, now slightly negative) |
+| Mean purity | 0.9877 / 0.9876 / 0.9877 | **0.9910** / 0.9896 / 0.9905 | BFS leads by 0.001–0.002 |
+| Splits | 31,172 / 17,261 / 15,630 | **647** / 821 / 1,403 | **GNN no longer halves BFS — BFS now 2.2× better on splits** |
+| Merges | 102,766 / 98,342 / 97,272 | **2,412** / 2,731 / 2,465 | CCN+BFS10 within 2% of BFS; SEN+BFS10 +13% |
+
+**Cluster-physics evaluation on MixLow val** (29 files × 500 events, 27,109 disk-graphs, ~454K matched cluster pairs per method; `outputs/run1b_mixlow_phys_baseline/`):
+
+| Method | mean &#124;dE&#124; (MeV) | mean dr (mm) | E_reco/E_truth std | &#124;dE&#124; > 10 MeV |
+|---|---|---|---|---|
+| **BFS** | **0.444** | **1.32** | **0.086** | **1.7%** |
+| SEN (bare) | 0.589 | 1.75 | 0.105 | 2.2% |
+| SEN+BFS10 | 0.503 | 1.54 | 0.094 | 1.8% |
+| CCN (bare) | 0.535 | 1.69 | 0.098 | 1.9% |
+| CCN+BFS10 | 0.487 | 1.57 | 0.092 | 1.7% |
+
+**By energy bin (50–200 MeV, ~signal range):** BFS = 0.656 mean &#124;dE&#124;, 1.17 mm dr; CCN+BFS10 = 0.697 mean &#124;dE&#124;, 1.32 mm dr.
+**By multiplicity (4+ hit clusters):** BFS = 0.786 mean &#124;dE&#124;, 2.05 dr; CCN+BFS10 = 0.788 mean &#124;dE&#124;, 2.29 dr.
+
+**Comparison vs §7.4 MDC2025 v2 test (best-of column for each method):**
+
+| Metric | MDC2025: BFS / CCN+BFS10 | MixLow: BFS / CCN+BFS10 | Direction |
+|---|---|---|---|
+| mean &#124;dE&#124; | 0.519 / **0.421** | **0.444** / 0.487 | **GNN -19% → +10% (regression)** |
+| mean dr | 1.878 / **1.556** | **1.316** / 1.566 | GNN -17% → +19% (regression) |
+| &#124;dE&#124; > 10 MeV | 2.0% / **1.3%** | **1.7%** / 1.7% | GNN -35% → +0% (advantage erased) |
+
+**Stage-C verdict: retraining is justified.** On MixLow:
+
+- **TMR-tied with BFS** (96.4% / 96.4%, with CCN+BFS10) — and CCN+BFS10 even beats BFS in the 1-hit pileup-cluster bin on TMR (92.9 vs 92.7%). So at the *categorical* match level, the GNN isn't broken.
+- **Splits regress sharply** — BFS now wins splits by 2.2× (647 vs 1,403); on MDC2025 GNN halved BFS splits.
+- **Cluster physics regresses across the board** — BFS leads on mean &#124;dE&#124;, dr, and outlier rate. The §7.4 "GNN+BFS10 reduces mean &#124;dE&#124; by ~19% vs BFS" inverts to "+10% worse" here. Same story per energy and multiplicity bin.
+
+The §4/§7 GNN advantage was a coupled *splits-reduction → fewer broken energy fragments → tighter physics residuals* story. Here it not only fails to materialize, it inverts. CCN+BFS10's BFS-style traversal partially compensates (CCN bare 0.535 → CCN+BFS10 0.487), but cannot recover the §7.4 advantage because the underlying edge-classifier disagrees with truth on different cluster boundaries than it was trained on.
+
+**Decision: proceed to Stage D + Stage E** (local batch reprocess + retrain on MixLow). The retraining target is specifically: recover the splits-reduction *and* the physics-residual lead at the new pileup density. Stage E will rerun §6.2-style physics on the retrained model and quantify whether it crosses BFS again (target: mean &#124;dE&#124; ≤ 0.40 MeV vs BFS = 0.44 MeV; mean dr ≤ 1.30 mm vs BFS = 1.32 mm).
+
 ---
 
 ## 6. Cluster-level physics evaluation (downstream quantities)

@@ -1301,6 +1301,16 @@ python3 scripts/compare_parity_dump.py parity_dump.root
 - [x] Edge feature distributions mostly in MDC2025 z-score range; mild tails on dt (p99=4.67) and dist (p99=2.57) reflect the wider no-field timing window. Not OOD-catastrophic.
 - [x] Diagnostics + raw arrays saved to `outputs/run1b_mixlow_stageB/stageB_diagnostics.npz`. Full table in `docs/findings.md` §5.3.
 
+#### 18c: Stage C — Local ancestry reprocessing + truth-aware eval ✓
+
+- [x] First reprocess attempt failed: `illegal production target version specified = 4` — Offline source (HEAD `a58c90ea5`, today) had v4 stickman registered, but May-3 build was stale (source updated since then). Triggered incremental rebuild via `run_u092_build.sh`; completed in 3 min on `mu2ebuild02.fnal.gov`.
+- [x] Reprocessed 3 MCS files of `FlateMinusMixLow-KL/Run1Baf_best_v1_4-001` (~22s each post-rebuild, parallelized 2 at a time). Output: `/exp/mu2e/data/users/wzhou2/GNN/root_files_run1b_mixlow/` (3 files × ~30 MB, total 7,764 events with `calomcsim.ancestorSimIds`).
+- [x] Ran `scripts/evaluate_run1b.py --root-dir <new dir> --output-dir outputs/run1b_mixlow_eval --n-events 1000` → 5,617 disk-graphs, 98,590 truth clusters in 88s.
+- [x] First pass (bare connected-components): GNNs lose to BFS on splits/merges/TMR. Re-ran with `--bfs-expand-cut 10` to add §7-style post-processing for fair comparison. Modified `evaluate_run1b.py` to accept `--bfs-expand-cut` flag.
+- [x] **Decision gate triggered → Stage D required.** With CCN+BFS10 the picture is more nuanced: TMR ties BFS (96.4%/96.4%) and CCN+BFS10 *beats* BFS in the 1-hit pileup-cluster bin (92.9 vs 92.7%, where 39% of truth clusters live). Merges near-parity (CCN+BFS10 = 2,465 vs BFS = 2,412). But splits regress sharply: BFS=647 vs **CCN+BFS10=1,403** — a 2.2× BFS win, opposite §4.3 where GNN halved BFS splits. The MDC2025 splits-reduction story doesn't transfer to this regime.
+- [x] Outputs persisted: `outputs/run1b_mixlow_eval/` (bare) and `outputs/run1b_mixlow_eval_bfs10/` (with BFS10). Full per-method table + per-bin breakdown in `docs/findings.md` §5.4.
+- [x] **Cluster-physics evaluation** (§6-style, MixLow val 29 files × 500 events, 27K disk-graphs, ~454K matched pairs per method): all 4 GNN variants (SEN, SEN+BFS10, CCN, CCN+BFS10) **lose to BFS** on mean &#124;dE&#124;, mean dr, and outlier rate. Best GNN (CCN+BFS10) gives mean &#124;dE&#124; = 0.487 MeV vs BFS = 0.444 MeV (10% worse) — clean inversion of §7.4's GNN −19% advantage on MDC2025. Outputs: `outputs/run1b_mixlow_phys_baseline/`. Decisive evidence for retraining.
+
 ---
 
 ## Notes

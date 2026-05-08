@@ -215,7 +215,7 @@ def load_model(config_path, checkpoint_path, device):
 
 
 def run_gnn_inference(model, data, device, edge_index, n_disk, energies,
-                      tau_edge, tau_node):
+                      tau_edge, tau_node, bfs_expand_cut=None):
     """Run GNN inference and reconstruct clusters."""
     with torch.no_grad():
         output = model(data.to(device))
@@ -238,6 +238,7 @@ def run_gnn_inference(model, data, device, edge_index, n_disk, energies,
         min_energy_mev=0.0,
         node_logits=node_logits_np,
         tau_node=tau_node,
+        bfs_expand_cut=bfs_expand_cut,
     )
     return labels
 
@@ -252,6 +253,10 @@ def main():
     parser.add_argument("--n-files", type=int, default=None,
                         help="Max number of files (default: all)")
     parser.add_argument("--output-dir", type=str, default="outputs/run1b_eval")
+    parser.add_argument("--bfs-expand-cut", type=float, default=None,
+                        help="If set, post-process GNN clusters with §7-style "
+                             "BFS expand-cut (e.g. 10 for CCN+BFS10). "
+                             "Default: bare connected-components.")
     args = parser.parse_args()
 
     device = torch.device("cpu")
@@ -401,7 +406,8 @@ def main():
                     m = models[gnn_name]
                     gnn_labels = run_gnn_inference(
                         m["model"], data, device, edge_index, n_disk, d_e,
-                        m["tau_edge"], m["tau_node"])
+                        m["tau_edge"], m["tau_node"],
+                        bfs_expand_cut=args.bfs_expand_cut)
                     gnn_match, gnn_td = match_clusters_detail(
                         gnn_labels, mc_truth, d_e)
                     all_results[gnn_name].append(gnn_match)
