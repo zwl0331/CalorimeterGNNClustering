@@ -232,6 +232,25 @@ def main():
     parser.add_argument("--output-dir", type=str,
                         default="outputs/cluster_physics_eval")
     parser.add_argument("--device", type=str, default="cpu")
+    parser.add_argument("--base-config", type=str, default="configs/default.yaml",
+                        help="Config providing normalization stats + graph hyperparams "
+                             "(default: MDC2025 v2 default.yaml)")
+    parser.add_argument("--sen-config", type=str, default="configs/default.yaml",
+                        help="SimpleEdgeNet config (default: MDC2025 v2)")
+    parser.add_argument("--sen-checkpoint", type=str,
+                        default="outputs/runs/simple_edge_net_v2/checkpoints/best_model.pt",
+                        help="SimpleEdgeNet checkpoint (default: MDC2025 v2)")
+    parser.add_argument("--ccn-config", type=str,
+                        default="configs/calo_cluster_net.yaml",
+                        help="CaloClusterNet config (default: MDC2025 v2 stage1)")
+    parser.add_argument("--ccn-checkpoint", type=str,
+                        default="outputs/runs/calo_cluster_net_v2_stage1/checkpoints/best_model.pt",
+                        help="CaloClusterNet checkpoint (default: MDC2025 v2 stage1)")
+    parser.add_argument("--ignore-tau-node", action="store_true",
+                        help="Disable saliency-based edge suppression even for "
+                             "models trained with lambda_node > 0. Use this to "
+                             "evaluate CCN-saliency under the §7.3/§7.4 CCN+BFS10 "
+                             "recipe (edges only).")
     args = parser.parse_args()
 
     device = torch.device(args.device)
@@ -241,14 +260,10 @@ def main():
     # ── Load models ──
     # Each entry: (config_path, checkpoint_path, bfs_expand_cut or None)
     configs = {
-        "SimpleEdgeNet": ("configs/default.yaml",
-                          "outputs/runs/simple_edge_net_v2/checkpoints/best_model.pt", None),
-        "SEN+BFS10": ("configs/default.yaml",
-                      "outputs/runs/simple_edge_net_v2/checkpoints/best_model.pt", 10),
-        "CaloClusterNet": ("configs/calo_cluster_net.yaml",
-                           "outputs/runs/calo_cluster_net_v2_stage1/checkpoints/best_model.pt", None),
-        "CCN+BFS10": ("configs/calo_cluster_net.yaml",
-                      "outputs/runs/calo_cluster_net_v2_stage1/checkpoints/best_model.pt", 10),
+        "SimpleEdgeNet": (args.sen_config, args.sen_checkpoint, None),
+        "SEN+BFS10": (args.sen_config, args.sen_checkpoint, 10),
+        "CaloClusterNet": (args.ccn_config, args.ccn_checkpoint, None),
+        "CCN+BFS10": (args.ccn_config, args.ccn_checkpoint, 10),
     }
 
     models = {}
@@ -273,12 +288,14 @@ def main():
         has_node = model_type == "CaloClusterNet"
         lam_node = cfg.get("train", {}).get("lambda_node", 0.0)
         tau_nodes[name] = cfg["inference"].get("tau_node") if (has_node and lam_node > 0) else None
+        if args.ignore_tau_node:
+            tau_nodes[name] = None
         bfs_ecs[name] = bfs_ec
         ec_str = f", bfs_ec={bfs_ec}" if bfs_ec else ""
         print(f"Loaded {name}: tau_edge={tau_edges[name]}{ec_str}")
 
     # ── Load shared resources ──
-    with open("configs/default.yaml") as f:
+    with open(args.base_config) as f:
         base_cfg = yaml.safe_load(f)
     stats = load_stats(base_cfg["data"]["normalization_stats"])
     crystal_map = load_crystal_map("data/crystal_geometry.csv")

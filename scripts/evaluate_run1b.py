@@ -252,11 +252,31 @@ def main():
                         help="Max events per file (default 500)")
     parser.add_argument("--n-files", type=int, default=None,
                         help="Max number of files (default: all)")
+    parser.add_argument("--file-list", type=str, default=None,
+                        help="If set, only evaluate ROOT files listed in this file "
+                             "(one path per line). Otherwise glob *.root from --root-dir.")
     parser.add_argument("--output-dir", type=str, default="outputs/run1b_eval")
     parser.add_argument("--bfs-expand-cut", type=float, default=None,
                         help="If set, post-process GNN clusters with §7-style "
                              "BFS expand-cut (e.g. 10 for CCN+BFS10). "
                              "Default: bare connected-components.")
+    parser.add_argument("--sen-config", type=str,
+                        default="configs/default.yaml",
+                        help="SimpleEdgeNet config (default: MDC2025 v2 config)")
+    parser.add_argument("--sen-checkpoint", type=str,
+                        default="outputs/runs/simple_edge_net_v2/checkpoints/best_model.pt",
+                        help="SimpleEdgeNet checkpoint (default: MDC2025 v2)")
+    parser.add_argument("--ccn-config", type=str,
+                        default="configs/calo_cluster_net.yaml",
+                        help="CaloClusterNet config (default: MDC2025 v2 stage1)")
+    parser.add_argument("--ccn-checkpoint", type=str,
+                        default="outputs/runs/calo_cluster_net_v2_stage1/checkpoints/best_model.pt",
+                        help="CaloClusterNet checkpoint (default: MDC2025 v2 stage1)")
+    parser.add_argument("--ignore-tau-node", action="store_true",
+                        help="Disable saliency-based edge suppression even for "
+                             "models trained with lambda_node > 0. Use this to "
+                             "evaluate CCN-saliency under the §7.3 CCN+BFS10 recipe "
+                             "(edges only).")
     args = parser.parse_args()
 
     device = torch.device("cpu")
@@ -265,15 +285,13 @@ def main():
     # Load both models
     models = {}
     for name, cfg_path, ckpt_path in [
-        ("SimpleEdgeNet",
-         "configs/default.yaml",
-         "outputs/runs/simple_edge_net_v2/checkpoints/best_model.pt"),
-        ("CaloClusterNet",
-         "configs/calo_cluster_net.yaml",
-         "outputs/runs/calo_cluster_net_v2_stage1/checkpoints/best_model.pt"),
+        ("SimpleEdgeNet", args.sen_config, args.sen_checkpoint),
+        ("CaloClusterNet", args.ccn_config, args.ccn_checkpoint),
     ]:
         model, cfg, mname, tau_edge, tau_node = load_model(
             cfg_path, ckpt_path, device)
+        if args.ignore_tau_node:
+            tau_node = None
         models[name] = {
             "model": model, "cfg": cfg, "tau_edge": tau_edge,
             "tau_node": tau_node,
@@ -289,7 +307,23 @@ def main():
 
     # Get file list
     root_dir = Path(args.root_dir)
-    files = sorted(root_dir.glob("*.root"))
+    if args.file_list:
+        with open(args.file_list) as f:
+            file_lines = [ln.strip() for ln in f if ln.strip()]
+        files = []
+        for ln in file_lines:
+            p = Path(ln)
+            if p.exists():
+                files.append(p)
+            else:
+                local = root_dir / p.name
+                if local.exists():
+                    files.append(local)
+                else:
+                    print(f"  WARN: file from --file-list not found, skipping: {ln}")
+        files = sorted(files)
+    else:
+        files = sorted(root_dir.glob("*.root"))
     if args.n_files:
         files = files[:args.n_files]
     print(f"\nRun1B files: {len(files)}")
