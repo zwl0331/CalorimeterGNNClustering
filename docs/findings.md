@@ -262,6 +262,51 @@ Multiplicity: 1-hit 41.7% (only 12 singletons total!); 2–3 hits ~100%; 4+ hits
 - GNNs generalize perfectly despite being trained on with-field data.
 - MDC2025 with pileup remains the meaningful benchmark.
 
+### 5.1 Candidate datasets for no-field + pileup study (next step)
+
+Without the magnetic field, low-momentum charged backgrounds are no longer curled away from the calorimeter — every charged particle in the inner DS volume reaches the disks. Pileup density per disk is therefore expected to be substantially higher than in MDC2025 (with-field), which likely requires retraining/retuning rather than zero-shot generalization. Candidates on tape (all use `KalmanLine` reco — `-KL` suffix marks no-field across the board):
+
+| Dataset (description) | Pileup overlay | Files | Where (tape) |
+|---|---|---|---|
+| `FlateMinusMixLow-KL` / `Run1Baf_best_v1_4-001` | MixLow (off-spill, low intensity) | 192 art | `/pnfs/mu2e/tape/phy-sim/mcs/mu2e/FlateMinusMixLow-KL/Run1Baf_best_v1_4-001/art/` |
+| `FlateMinusMixLowTriggerable-KL` | MixLow + trigger pre-filter | several `Run1Bxx` | `/pnfs/mu2e/tape/phy-sim/mcs/mu2e/FlateMinusMixLowTriggerable-KL/` |
+| `FlateMinusOnSpillTriggerable-KL` / `Run1Baf_best_v1_4-000` | OnSpill + trigger pre-filter | 20 art | `/pnfs/mu2e/tape/phy-sim/mcs/mu2e/FlateMinusOnSpillTriggerable-KL/Run1Baf_best_v1_4-000/art/` |
+
+Corresponding standard NTS exist (e.g. `phy-nts/nts/mu2e/FlateMinusMixLow-KL/Run1B-004/root/` — 192 files, ~9.5 GB), but lack `calomcsim.ancestorSimIds`. To use calo-entrant truth, MCS art files would need reprocessing through the modified EventNtuple (same FermiGrid path as `root_files_run1b/grid_submit.sh`).
+
+**Recommended starting point:** `FlateMinusMixLow-KL/Run1Baf_best_v1_4-001` — pairs cleanly with the existing `FlateMinus-KL/Run1Bah` no-pileup baseline (same generator, same no-field config; only difference is the pileup overlay).
+
+**Naming reference** (Mu2e production convention, decoded for this project):
+- `-KL` = KalmanLine reco (no-field). `-LH` = LoopHelix (with-field).
+- `MixLow` = off-spill low-intensity pileup; `Mix1BB`/`Mix2BB` = on-spill 1/2-batch-bunch (no `-KL` variants exist for FlateMinus); `OnSpill` = on-spill timing with full pileup.
+- `Triggerable`/`Triggered` = trigger pre-filter / full trigger applied.
+- `Run1Bxx_best_v1_4` = Run-1B campaign, conditions DB v1.4.
+
+### 5.2 Stage A — regime characterization (no-field + pileup, 2026-05-07)
+
+Sample: 3 standard-NTS files of `FlateMinusMixLow-KL/Run1B-004`, 500 events/file ≈ 1,500 events → 2,810 disk-graphs. Standard NTS lacks `crystalPos_`, so positions resolved via `crystal_map`. No ancestry → no truth metrics yet (Stage C). Same graph builder, `r_max=210 mm`, `dt_max=25 ns`.
+
+**Per-disk-graph distributions (median / p95 / p99 / max):**
+
+| Quantity | MDC2025 train (with-field, with-pileup) | MixLow (no-field, low pileup) | Ratio (med / p95) |
+|---|---|---|---|
+| Hits | 9 / 30 / 44 / 80 | 22 / 113 / 165 / 224 | **2.4× / 3.8×** |
+| Edges (undirected) | 11 / 39 / 57 / 124 | 20 / 127 / 208 / 362 | 1.8× / 3.3× |
+| Mean hit E (MeV) | 14.4 / 20.8 / 26.6 / 52.8 | 13.4 / 18.0 / 23.9 / 33.4 | 0.93× / 0.87× |
+| Sum disk E (MeV) | 141 / 427 / 615 / 1,104 | 298 / 1,477 / 2,180 / 2,920 | 2.1× / 3.5× |
+
+**MixLow BFS reco (per disk):** 10 / 56 / 82 / 112 clusters (median / p95 / p99 / max) — ~2× more clusters per disk than MDC2025's ~5/disk. BFS cluster size median 2 hits, max 9 (mostly tiny pileup splinters). BFS cluster energy median 26 MeV.
+
+**Key observations:**
+
+- **Hit density is 2.4× higher at median, ~4× at the high-p95 tail.** This is the dominant difference vs MDC2025.
+- **Edges scale linearly with hits** (~1.0–1.3 edges/hit, similar to MDC2025) — the graph builder is not pathological in this regime, just bigger.
+- **Per-hit energies are slightly *lower*** (0.93×) — consistent with more soft charged backgrounds reaching the calo without B-field deflection.
+- **BFS produces ~2× more clusters/disk**, with a long tail of 2–3 hit splinters — the prediction that no-field pileup over-fragments is borne out.
+- **Inference cost** at the worst tail (~360 edges vs ~125 in MDC2025) is ~3× higher for the GNN, still well within budget — the graph isn't the bottleneck.
+
+**Stage-A verdict:** the regime is materially harder than MDC2025 — hit density up 2–4×, BFS cluster count up 2×. Existing model trained on MDC2025 is unlikely to be optimal here. Stage B (inference + BFS comparison) and Stage C (truth-aware eval on small ancestry-reprocessed sample) will quantify the actual GNN performance gap.
+
 ---
 
 ## 6. Cluster-level physics evaluation (downstream quantities)

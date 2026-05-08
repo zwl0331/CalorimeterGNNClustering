@@ -1276,6 +1276,25 @@ python3 scripts/compare_parity_dump.py parity_dump.root
 
 ---
 
+### Task 18: Run1B + Pileup Generalization & Retraining Decision
+
+**Goal:** Determine whether models trained on MDC2025 (with-field, with-pileup) generalize to the no-field-with-pileup regime, or whether retraining is required. Without the magnetic field, low-momentum charged backgrounds are no longer curled away from the calorimeter, so pileup density per disk is expected to be substantially higher than MDC2025. §5 already showed zero-shot generalization from with-field-with-pileup to no-field-no-pileup; this task closes the missing quadrant.
+
+**Prerequisite:** Task 17 must complete first — the answer to "what is the right `r_max`?" feeds directly into graph construction here.
+
+**Dataset:** `FlateMinusMixLow-KL / Run1Baf_best_v1_4-001` — 192 art MCS files on tape at `/pnfs/mu2e/tape/phy-sim/mcs/mu2e/FlateMinusMixLow-KL/Run1Baf_best_v1_4-001/art/`. Standard NTS without ancestry available at `/pnfs/mu2e/tape/phy-nts/nts/mu2e/FlateMinusMixLow-KL/Run1B-004/root/` (192 files, ~9.5 GB). See `docs/findings.md` §5.1 for the full candidate-dataset table and naming-convention decoder.
+
+**Strategy:** Stage gates A → B → C → D, cheapest first. Decide on retraining (Stage D) based on Stage C truth-aware results — not preemptively.
+
+#### 18a: Stage A — Regime characterization ✓
+
+- [x] Wrote `scripts/characterize_run1b_pileup.py`: streams MixLow standard NTS from `/pnfs/`, builds graphs at `r_max=210 mm`, computes hit/edge/energy distributions; reads MDC2025 train baseline from packed `data/processed/train.pt`. Standard Run1B-004 NTS lacks `crystalPos_`; falls back to `crystal_map`.
+- [x] Ran on 3 files × 500 events → 2,810 disk-graphs.
+- [x] Result: hit density **2.4× median, 3.8× at p95**; BFS clusters/disk **~2×**; per-hit energies slightly lower (~0.93×). Edges scale linearly with hits — graph builder not pathological. Full table in `docs/findings.md` §5.2.
+- [x] Verdict: regime is materially harder than MDC2025; existing model unlikely to be optimal. Proceed to Stage B (inference comparison) and Stage C (truth-aware eval).
+
+---
+
 ## Notes
 
 - **PyG environment:** `pyenv` is a shell function; scripts must `source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh` before calling it. The `mu2einit` alias only works in interactive shells. All required packages confirmed in `ana 2.6.1`.
