@@ -307,6 +307,46 @@ Sample: 3 standard-NTS files of `FlateMinusMixLow-KL/Run1B-004`, 500 events/file
 
 **Stage-A verdict:** the regime is materially harder than MDC2025 — hit density up 2–4×, BFS cluster count up 2×. Existing model trained on MDC2025 is unlikely to be optimal here. Stage B (inference + BFS comparison) and Stage C (truth-aware eval on small ancestry-reprocessed sample) will quantify the actual GNN performance gap.
 
+### 5.3 Stage B — inference diagnostics (MDC2025 model on MixLow, 2026-05-07)
+
+Same 1,500-event / 2,774 disk-graph sample. Ran the v2 SEN (`outputs/runs/simple_edge_net_v2`, τ=0.26) and v2 CCN-saliency (`outputs/runs/calo_cluster_net_v2_saliency`, τ=0.14) models with MDC2025-train normalization stats. Script: `scripts/stageB_inference_diagnostics.py`. No truth available yet (no ancestry on standard NTS).
+
+**Edge sigmoid scores (raw model output, 201,520 directed edges):**
+
+| Model | mean | median | p95 | p99 | edges > τ |
+|---|---|---|---|---|---|
+| SEN (τ=0.26) | 0.65 | 0.80 | 0.98 | 0.997 | 79.7% |
+| CCN (τ=0.14) | 0.67 | 0.89 | 0.999 | 0.9998 | 78.7% |
+
+Scores are decisive (not collapsed to 0.5), so the model is not "confused" by the new regime. Both models classify ~80% of in-graph edges as same-cluster — but this is consistent with the graph builder already filtering edges to time-coincident close-by hits, where most pairs *are* same-cluster.
+
+**Per-disk-graph cluster counts and sizes (BFS vs SEN vs CCN):**
+
+| Method | Clusters/disk (med / p95 / p99) | Cluster size (med / p95 / max) |
+|---|---|---|
+| BFS  | 10 / 56 / 82 | 2.0 / 4 / 9 |
+| SEN  | 10 / 56 / 80 | 2.0 / 4 / – |
+| CCN  | 10 / 56 / 82 | 2.0 / 4 / – |
+
+GNN cluster *count* and *size* distributions track BFS closely. **This is consistent with §4.3 on MDC2025**, where bare GNN reconstruction was already within 0.3 pp of BFS on TMR (94.0/94.1% vs 94.3%); the headline split/merge counts and downstream-physics differences (§6, §7) are what set them apart, not coarse cluster counts. So this Stage-B observation is not by itself a "GNN looks broken" or a "GNN adds nothing" signal — it's the expected behavior absent truth-side metrics.
+
+**Post-normalization edge features (should be ~ N(0,1) if MDC2025 stats fit):**
+
+| Feature | mean | p05 | p95 | p99 |
+|---|---|---|---|---|
+| dx | 0.00 | −1.11 | 1.11 | 1.75 |
+| dy | 0.00 | −0.96 | 0.96 | 1.91 |
+| dist | −0.12 | −0.52 | 0.81 | **2.57** |
+| dt | 0.00 | −2.72 | 2.72 | **4.67** |
+| dlogE | 0.00 | −1.56 | 1.56 | 1.99 |
+| Easym | 0.00 | −1.50 | 1.50 | 1.66 |
+| logSumE | −0.08 | −1.80 | 1.23 | 1.89 |
+| dr | 0.00 | −2.02 | 2.02 | **3.23** |
+
+Most features are well-bounded; dt and dist (and to a lesser extent dr) have heavier tails than the MDC2025 training distribution. Not catastrophic OOD, but the timing distribution is wider, consistent with no-field events spreading hits over a longer time window.
+
+**Stage-B verdict (limited).** What Stage B *can* establish without truth: the model is not catastrophically broken on MixLow — edge sigmoid scores are decisive (not collapsed to 0.5), edge features mostly stay in MDC2025 z-score range with mild dt/dist tails, and connectivity matches BFS at the cluster-count level. What Stage B *cannot* establish: whether the model's split/merge behavior, completeness, and §7-style fringe-cleanup leverage hold up — those all require ancestry-based truth and only show up in §4.3-style metrics (where bare GNN already differs from BFS by < 1 pp on TMR but halves splits). All meaningful comparison waits on Stage C.
+
 ---
 
 ## 6. Cluster-level physics evaluation (downstream quantities)

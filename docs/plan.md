@@ -1293,6 +1293,14 @@ python3 scripts/compare_parity_dump.py parity_dump.root
 - [x] Result: hit density **2.4× median, 3.8× at p95**; BFS clusters/disk **~2×**; per-hit energies slightly lower (~0.93×). Edges scale linearly with hits — graph builder not pathological. Full table in `docs/findings.md` §5.2.
 - [x] Verdict: regime is materially harder than MDC2025; existing model unlikely to be optimal. Proceed to Stage B (inference comparison) and Stage C (truth-aware eval).
 
+#### 18b: Stage B — Inference vs BFS reference ✓
+
+- [x] `scripts/stageB_inference_diagnostics.py` written; runs SEN (`simple_edge_net_v2`, τ=0.26) + CCN-saliency (`calo_cluster_net_v2_saliency`, τ=0.14) on the same 3-file × 500-event sample, using MDC2025 normalization stats.
+- [x] **No catastrophic failure.** Edge sigmoid scores are decisive (medians 0.80 SEN / 0.89 CCN, not collapsed to 0.5); ~80% of in-graph edges classified positive (consistent with the graph builder already filtering edges to time-coincident close-by hits where most pairs are same-cluster).
+- [x] **GNN clusters mirror BFS at the count/size level** — same count distribution (med 10, p95 56), same size distribution (med 2 hits). This is consistent with §4.3 on MDC2025 where bare GNN tracked BFS within 0.3 pp on TMR; the GNN's wins were in split count, completeness, and §7 post-processing — none of which Stage B can probe without truth.
+- [x] Edge feature distributions mostly in MDC2025 z-score range; mild tails on dt (p99=4.67) and dist (p99=2.57) reflect the wider no-field timing window. Not OOD-catastrophic.
+- [x] Diagnostics + raw arrays saved to `outputs/run1b_mixlow_stageB/stageB_diagnostics.npz`. Full table in `docs/findings.md` §5.3.
+
 ---
 
 ## Notes
