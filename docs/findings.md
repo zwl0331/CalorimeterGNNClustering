@@ -76,11 +76,29 @@ Analyzed 2,318 singletons from 500 events:
 
 ## 2. Graph construction gate
 
-`r_max=210 mm` with radius+kNN hybrid (cKDTree). Gate results on 34 graphs, 95 multi-hit truth clusters:
+`r_max=210 mm` with radius+kNN hybrid (cKDTree). Original gate results on 34 graphs, 95 multi-hit truth clusters (under **old SimParticle truth**):
 
 - **Pair recall:** 1.0000 (every same-cluster hit pair has an edge).
 - **Cluster connectivity:** 1.0000 (every truth cluster is a connected subgraph).
 - Bumped from 150 mm after 24 missed pairs were found at 153–209 mm (all time-compatible). Going to 210 mm added ~24 edges per graph with no change to max degree (6). No degree-cap or time-filter misses.
+
+### 2.1 Re-gate under calo-entrant truth (2026-05-07)
+
+Calo-entrant truth (§1) merges hits from different SimParticles in the same shower; the maximum same-cluster pair distance can only grow versus the old SimParticle truth. Re-gated on full v2 packed splits (`scripts/regate_pair_recall.py`):
+
+| Split | Multi-hit clusters | Same-cluster pairs | Pairs > 210 mm | Clusters with any pair > 210 mm | Max pair-dist | 99th %ile |
+|-------|-------------------:|-------------------:|---------------:|-------------------------------:|--------------:|----------:|
+| train | 88,339 | 345,514 | 3,024 (0.88%) | 1,661 (1.88%) | 1,132 mm | 246 mm |
+| val   | 17,643 |  69,401 |   625 (0.90%) |   335 (1.90%) |   953 mm | 246 mm |
+| test  | 20,586 |  79,815 |   694 (0.87%) |   390 (1.89%) | 1,090 mm | 241 mm |
+
+By cluster multiplicity (train): 2-hit 0.63%, 3–4 hit 0.77%, 5+ hit 1.02% of pairs over 210 mm. Median multi-hit max pair-distance = 68.6 mm; 95th %ile = 172 mm; 99th %ile ≈ 245 mm; 99.9th %ile ≈ 660–710 mm (heavy tail to ~1.1 m, longer than the disk diameter — far-flung deposits from the same shower, e.g. a high-energy photon escaping and reconverting at a distant crystal).
+
+**Implication:** The graph topology imposes a hard ceiling of ~98% on multi-hit cluster reconstruction (1.9% of clusters have at least one pair unreachable by edges at `r_max=210 mm`). The §4 v2 TMR (94.3%) is well below this ceiling, so the topology cap is **not** the dominant bottleneck — model behavior is. No retraining required from this finding alone.
+
+**Why not bump `r_max` further:** covering the 99.9th percentile would require `r_max ≈ 700 mm`, larger than the disk diameter — all-pairs connected, no spatial locality structure for the GNN to learn. The 99th percentile (~245 mm) is a cheap bump if needed, but only moves the cap from 98% → ~99%, not enough to motivate a full rebuild + retrain in isolation.
+
+**Implication for Task 18 (no-field + pileup):** density and multi-hit cluster fraction will rise; the same physical mechanism (escaped-photon reconversion) may now produce more long-range pairs per event. Re-run this gate on the MixLow data once available to quantify.
 
 ---
 

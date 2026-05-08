@@ -1247,6 +1247,35 @@ python3 scripts/compare_parity_dump.py parity_dump.root
 
 ---
 
+### Task 17: Calo-Entrant Pair-Recall Regate
+
+**Goal:** Verify that the §2 graph construction gate (`r_max=210mm` → 100% pair recall) still holds under calo-entrant truth. The §2 result (34 graphs, 95 multi-hit clusters) was established before the truth redefinition in §1; calo-entrant truth merges hits from different SimParticles in the same shower, so the maximum same-cluster pair distance can only grow. If any pair now exceeds 210 mm, the §4 v2 metrics (TMR/RMR) are capped below 100% by graph topology rather than by the model — and Task 18's higher-pileup study would inherit the same cap.
+
+**Approach (cheap, fast — packed graphs):** Operate on `data/processed/{train,val,test}.pt`. The graph builder preserves all hits as nodes (only edges are filtered at `r_max`), and `hit_truth_cluster` is stored per node under calo-entrant truth. Node positions live in `x[:, 2]` (x) and `x[:, 3]` (y) — packed graphs store *raw physical* features (mm), normalization is applied at training time inside `CaloGraphDataset`.
+
+#### 17a: Same-cluster pair-distance scan ✓
+
+- [x] `scripts/regate_pair_recall.py` written and run on all three v2 splits
+- [x] Result (2026-05-07): **gate fails materially** — 1.88–1.90% of multi-hit clusters have at least one pair > 210 mm (consistent across train/val/test). Pair-rate over 210 mm: 0.87–0.90%. Max distances reach ~1.1 m (far-flung deposits from same shower, e.g. escaped-photon reconversion at distant crystal). 99th percentile of max-pair-dist ≈ 245 mm; 95th percentile ≈ 172 mm.
+- [x] Stratified by cluster multiplicity: 2-hit 0.63% pair-rate, 3–4 hit 0.77%, 5+ hit 1.02% — bigger clusters fail slightly more, as expected.
+- [x] Results written to `docs/findings.md` §2.1.
+
+#### 17b: Decision ✓ (accept cap; do not rebuild)
+
+- [x] §4 v2 TMR is 94.3%; topology cap is ~98% → **topology is not the dominant bottleneck**, model behavior is. Rebuilding graphs + retraining purely for this would gain at most ~1.9% TMR even if topology were fully removed.
+- [x] Bumping `r_max` to cover 99.9th percentile (~700 mm) would exceed the disk diameter — all-pairs connected, destroys locality structure. Not viable.
+- [x] Bumping `r_max` to cover 99th percentile (~245 mm) is cheap (~24 edges/graph more, like the original 150 → 210 bump) but only moves the cap from 98% → ~99%; defer unless §4 metrics improve enough to make topology the new bottleneck.
+- [x] **Decision: accept the cap.** Document in §2.1, flag for Task 18 re-evaluation under denser pileup. No graph rebuild, no retrain.
+
+---
+
+### Milestone L — Graph Gate Re-verification ✓
+
+- [x] 17a: Pair-distance scan complete on existing v2 packed graphs
+- [x] 17b: Decision recorded — gate fails at ~1.9% of multi-hit clusters, but topology cap (98%) is well above current model TMR (94.3%); accepted, no rebuild.
+
+---
+
 ## Notes
 
 - **PyG environment:** `pyenv` is a shell function; scripts must `source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh` before calling it. The `mu2einit` alias only works in interactive shells. All required packages confirmed in `ana 2.6.1`.
