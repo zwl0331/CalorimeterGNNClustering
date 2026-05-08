@@ -10,7 +10,9 @@ __pycache__/
 # Large generated data — do not commit
 data/processed/*
 !data/processed/.gitkeep
+data/processed_run1b_mixlow/
 data/normalization_stats.pt
+data/normalization_stats_run1b_mixlow.pt
 
 # Build logs
 logs/
@@ -29,6 +31,11 @@ outputs/new_truth_eval/
 outputs/failure_audit/
 outputs/success*/
 outputs/run1b_eval/
+outputs/run1b_mixlow_eval/
+outputs/run1b_mixlow_eval_bfs10/
+outputs/run1b_mixlow_stageB/
+outputs/run1b_mixlow_phys_baseline/
+outputs/run1b_mixlow_phys_postretrain/
 outputs/analysis_for_sophie/
 outputs/cluster_physics_eval/
 outputs/cluster_physics_eval_dxy/
@@ -57,5 +64,6 @@ slides/
 # splits/train_files.txt       -- frozen split, commit this
 # splits/val_files.txt
 # splits/test_files.txt
+# splits/run1b_mixlow_*_files.txt -- frozen MixLow splits, commit these
 outputs/cluster_physics_eval_bfs_test/
 outputs/cluster_physics_eval_test_full

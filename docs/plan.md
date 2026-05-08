@@ -1311,6 +1311,54 @@ python3 scripts/compare_parity_dump.py parity_dump.root
 - [x] Outputs persisted: `outputs/run1b_mixlow_eval/` (bare) and `outputs/run1b_mixlow_eval_bfs10/` (with BFS10). Full per-method table + per-bin breakdown in `docs/findings.md` §5.4.
 - [x] **Cluster-physics evaluation** (§6-style, MixLow val 29 files × 500 events, 27K disk-graphs, ~454K matched pairs per method): all 4 GNN variants (SEN, SEN+BFS10, CCN, CCN+BFS10) **lose to BFS** on mean &#124;dE&#124;, mean dr, and outlier rate. Best GNN (CCN+BFS10) gives mean &#124;dE&#124; = 0.487 MeV vs BFS = 0.444 MeV (10% worse) — clean inversion of §7.4's GNN −19% advantage on MDC2025. Outputs: `outputs/run1b_mixlow_phys_baseline/`. Decisive evidence for retraining.
 
+#### 18d: Stage D — Local batch reprocess (no FermiGrid needed)
+
+The MixLow MCS files are small (130–330 MB vs Run1Bah's 1.2 GB) and the Offline rebuild done in 18c on `mu2ebuild02.fnal.gov` reprocesses one file in ~22 s. So the full 192-file batch fits comfortably in a local `xargs -P 20`-style parallel run (~4–5 min) — no grid, no tarball staging, no `mu2eprodsys`. Driver: `/exp/mu2e/data/users/wzhou2/GNN/root_files_run1b_mixlow/run_batch.sh`.
+
+- [x] Local batch: 189 files × ~22 s with `PARALLEL=20` finished in a few minutes; 192/192 produced (all 3 stage-C files + 189 fresh)
+- [x] Validation: all 192 files have `calomcsim.ancestorSimIds`; total **619,268 events** across all files (~3,225 events/file average)
+- [x] Splits: `splits/run1b_mixlow_{train,val,test}_files.txt` — 134 / 29 / 29 (70 / 15 / 15), seed=42 shuffle of the 192 files
+- [x] Config: `configs/run1b_mixlow_default.yaml` — same schema as `default.yaml`, but points at `data/processed_run1b_mixlow/`, `data/normalization_stats_run1b_mixlow.pt`, and the new splits files (so MDC2025 artifacts are not overwritten)
+- [x] Built graphs (134/29/29 files × 500 events/file) via `scripts/build_all_mixlow.sh` (in tmux session `mixlow_build`):
+  - train: **123,390 graphs** (897 MB) — 4.2× the v2 MDC2025 train (29,143 graphs)
+  - val: **26,703 graphs** (192 MB)
+  - test: **26,738 graphs** (195 MB)
+- [x] Norm stats: `data/normalization_stats_run1b_mixlow.pt` (computed from MixLow train, 2.3 KB)
+- [x] Bundles packed at `data/processed_run1b_mixlow/{train,val,test}.pt`
+- [x] CCN/SEN configs ready: `configs/run1b_mixlow_default.yaml`, `configs/calo_cluster_net_run1b_mixlow.yaml`, `configs/calo_cluster_net_saliency_run1b_mixlow.yaml`
+
+#### 18e: Stage E — Retrain on MixLow (gated on 18d)
+
+- [ ] Train SEN on MixLow train split (`configs/run1b_mixlow_default.yaml`, GPU node)
+- [ ] Train CCN-saliency with the same staged recipe (Stage 1 → Stage 2 with saliency, point both at MixLow paths)
+- [ ] Threshold tune on MixLow val (`scripts/tune_threshold.py --config configs/run1b_mixlow_default.yaml`)
+- [ ] Test-set evaluation: run §5.4-style eval (with `--bfs-expand-cut 10`) on MixLow test files
+- [ ] Cluster-physics evaluation (§6-style) on MixLow test, retrained vs BFS, to confirm the splits regression closes where it matters (downstream physics residuals)
+- [ ] Cross-evaluate retrained model on MDC2025 test (`data/processed/test.pt`) — does it carry back, or specialize away?
+- [ ] Record final metrics in `docs/findings.md` §5.5
+
+#### 18f: Augmented features (gated on 18e — only if a gap remains)
+
+If retraining-alone closes the splits regression and MixLow physics meets MDC2025 picture, skip this task. Otherwise — and only on calo-only fields:
+
+- [ ] Add `calohits.nSiPMs_` to graph builder as an extra node feature (1 channel) — pure quality flag, single-SiPM hits skew toward pileup splinters
+- [ ] Optionally add `calohits.timeErr_` and `calohits.eDepErr_` as 2 more node-feature channels and as denominators for normalized-residual edge features
+- [ ] Rebuild graphs, compute fresh norm stats, retrain SEN + CCN with augmented input dims
+- [ ] Ablation table: existing 6+8 vs augmented 9+10 on MixLow test set; retain only if ≥1 pp TMR or ≥10% splits improvement over the 6+8 baseline
+- [ ] If retained: update `metadata_props` in ONNX export (Task 16j) so the C++ graph maker emits matching tensors
+
+---
+
+### Milestone M — No-Field-With-Pileup Closure
+
+- [x] 18a: Regime characterized; hit/edge density vs MDC2025 quantified
+- [x] 18b: Existing model behavior on MixLow probed via BFS comparison
+- [x] 18c: Truth-aware eval on small sample done; retraining decision made with data
+- [x] 18d: Local batch reprocess complete; v2-style MixLow ROOT files in hand; splits + config in place; graphs packed (123K train / 26K val / 26K test)
+- [ ] 18e: Retrained models evaluated on MixLow test (TMR, RMR, splits/merges, cluster-physics); cross-eval back on MDC2025
+- [ ] 18f: (gated) Augmented features attempted only if 18e leaves a measurable gap
+- [ ] Sections §5.2, §5.3, §5.4 (and §5.5 after 18e) added to `docs/findings.md`
+
 ---
 
 ## Notes
@@ -1330,4 +1378,5 @@ python3 scripts/compare_parity_dump.py parity_dump.root
 - **Batch reprocessing:** `run_all.sh` uses xargs -P 20 for local parallel processing. Must run inside muse environment. Use tmux for persistence. ~70 min per file, ~3-4 hours total for 50 files.
 - **FermiGrid submission gotchas (2026-04-13):** `generate_fcl` requires `setup mu2etools` (not just `mu2egrid`); needs `--merge-factor=1` for RootInput FCL; outputs to `000/` dir which must be `tar czf`'d into `.tgz` for `--fcllist`. `mu2eprodsys` flags must be on one unbroken line (line breaks silently drop flags). `htgettoken` needs `--vaultserver htvaultprod.fnal.gov`. Use `--disk=10GB` for EventNtuple jobs (5GB caused hold errors). Full guide in Notion: "How to Submit Jobs to Fermilab's Grid".
 - **Run1B (no-field) dataset:** `FlateMinus-KL/Run1B-005`, 20 NTS files (~40K events each, ~440 MB each). MCS art files at `/pnfs/mu2e/tape/phy-sim/mcs/mu2e/FlateMinus-KL/Run1Bah_best_v1_4-001/art/` (20 files, 1.2 GB each). No `ancestorSimIds` in standard NTS — requires reprocessing through modified EventNtuple.
+- **Run1B + pileup dataset (Task 18):** `FlateMinusMixLow-KL/Run1Baf_best_v1_4-001`, 192 MCS art files at `/pnfs/mu2e/tape/phy-sim/mcs/mu2e/FlateMinusMixLow-KL/Run1Baf_best_v1_4-001/art/`. Standard NTS at `/pnfs/mu2e/tape/phy-nts/nts/mu2e/FlateMinusMixLow-KL/Run1B-004/root/` (~9.5 GB, no ancestry). `-KL` = KalmanLine (no-field) reco. Naming-convention decoder + alternative candidates (`MixLowTriggerable`, `OnSpillTriggerable`) in `docs/findings.md` §5.1.
 - **MDC2025 v2 ROOT files deleted (2026-04-13):** Freed 97 GB from `/exp/mu2e/data/`. Reproducible via FermiGrid (cluster `90854576`, tarball + `grid_submit.sh` still exist).

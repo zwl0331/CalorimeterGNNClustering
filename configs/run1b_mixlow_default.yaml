@@ -1,0 +1,50 @@
+# SimpleEdgeNet config for FlateMinusMixLow-KL (no-field, with pileup) Run1B retraining (Task 18e).
+# Schema mirrors configs/default.yaml; only data paths + splits + norm-stats path
+# differ so MDC2025 artifacts at data/processed/ + data/normalization_stats.pt
+# are not overwritten.
+
+data:
+  crystal_geometry: data/crystal_geometry.csv
+  crystal_neighbors: data/crystal_neighbors.csv
+  processed_dir:  data/processed_run1b_mixlow/
+  normalization_stats: data/normalization_stats_run1b_mixlow.pt
+  splits:
+    train: splits/run1b_mixlow_train_files.txt
+    val:   splits/run1b_mixlow_val_files.txt
+    test:  splits/run1b_mixlow_test_files.txt
+
+graph:
+  r_max_mm: 210.0
+  dt_max_ns: 25.0
+  k_min: 3
+  k_max: 20
+  use_topology_graph: false
+
+model:
+  name: SimpleEdgeNet
+  hidden_dim: 64
+  n_mp_layers: 3
+
+train:
+  optimizer: adamw
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  scheduler: plateau
+  epochs: 100
+  early_stop_patience: 15
+  batch_size: 32
+  neg_pos_ratio: 5
+  lambda_edge: 1.0
+  lambda_node: 0.0
+  lambda_cons: 0.0
+
+inference:
+  tau_node: 0.5
+  tau_edge: 0.26
+  min_hits: 2
+  min_energy_mev: 10.0
+
+output:
+  run_dir: outputs/runs/
+  checkpoint_dir: checkpoints/
+  debug_dir: outputs/debug/
