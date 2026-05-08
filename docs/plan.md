@@ -1329,13 +1329,14 @@ The MixLow MCS files are small (130–330 MB vs Run1Bah's 1.2 GB) and the Offlin
 
 #### 18e: Stage E — Retrain on MixLow (gated on 18d)
 
-- [ ] Train SEN on MixLow train split (`configs/run1b_mixlow_default.yaml`, GPU node)
-- [ ] Train CCN-saliency with the same staged recipe (Stage 1 → Stage 2 with saliency, point both at MixLow paths)
-- [ ] Threshold tune on MixLow val (`scripts/tune_threshold.py --config configs/run1b_mixlow_default.yaml`)
-- [ ] Test-set evaluation: run §5.4-style eval (with `--bfs-expand-cut 10`) on MixLow test files
-- [ ] Cluster-physics evaluation (§6-style) on MixLow test, retrained vs BFS, to confirm the splits regression closes where it matters (downstream physics residuals)
-- [ ] Cross-evaluate retrained model on MDC2025 test (`data/processed/test.pt`) — does it carry back, or specialize away?
-- [ ] Record final metrics in `docs/findings.md` §5.5
+- [x] Train SEN on MixLow train split (`configs/run1b_mixlow_default.yaml`, GPU node) — best val F1 0.9708, epoch 2, 17 epochs, run dir `outputs/runs/simple_edge_net_run1b_mixlow/`
+- [x] Train CCN-saliency with the same staged recipe — Stage 1 best val F1 0.9718 (ep 2, 17 epochs); saliency Stage 2 best val F1 0.9720 (ep 11, 26 epochs), node F1 0.902 (P=1.000, R=0.821). Run dirs `outputs/runs/calo_cluster_net_run1b_mixlow_stage1/`, `..._saliency/`.
+- [x] Threshold tune τ_edge on MixLow val (`scripts/tune_threshold.py --config configs/run1b_mixlow_default.yaml`) — SEN **τ=0.34** (was 0.26 on MDC2025), CCN-saliency **τ=0.32** (was 0.14 on MDC2025). Frozen in respective MixLow configs.
+- [x] **Sweep `bfs_expand_cut` at frozen τ_edge** (new step — EC=10 was tuned on MDC2025 §7.3, MixLow has different pileup density / per-hit E so the optimum can shift). Implemented `scripts/sweep_bfs_expand_cut.py` — sweeps EC over {None,3,5,7,10,12,15,20} on val, reports standard match metrics + downstream |dE|/dr (E_reco≥50 MeV cut on val.pt), recommends EC by best DS |dE| within 0.5pp of bare-CC TMR. **MixLow result: EC=10 sweet spot for both SEN and CCN-saliency** (matches §7.3 finding) — TMR cliff at EC=12+. Frozen `bfs_expand_cut: 10.0` in each MixLow config.
+- [x] Test-set evaluation: ran §5.4-style eval (`evaluate_run1b.py --bfs-expand-cut 10 --ignore-tau-node`) on MixLow test (29 files × 500 events, 27,161 disk-graphs). **All §5.4 regressions inverted** — both retrained GNNs beat BFS on every metric: TMR 96.5/96.9/97.1% (BFS/SEN/CCN), splits −19% (SEN), merges −22% (CCN). Outputs `outputs/run1b_mixlow_eval_retrained_bfs10/`.
+- [x] Cluster-physics evaluation (§6-style) on MixLow test (`evaluate_cluster_physics.py --ignore-tau-node`). **CCN+BFS10 mean |dE| = 0.281 MeV vs BFS = 0.446** (−37%, beats plan target of ≤0.40); mean dr = 1.038 mm vs BFS = 1.328 (beats target ≤1.30). vs §5.4 with MDC2025 weights: 0.487 → 0.281 (−42%). Outputs `outputs/cluster_physics_eval_mixlow_retrained/`.
+- [x] Cross-evaluate retrained model on MDC2025 test (`data/processed/test.pt` with MDC2025 norm stats). **Retraining specializes** — MixLow CCN-saliency on MDC2025 has 8.6× more splits and +85% worse downstream |dE| than v2 MDC2025-trained baseline. EC=10 *hurts* on MDC2025 for the MixLow-trained model (DS |dE| 1.47 → 2.81). Production deployment needs regime-specific model selection or joint training on both. Outputs `outputs/cross_eval_*_on_mdc2025/`.
+- [x] Recorded final metrics in `docs/findings.md` §5.5.
 
 #### 18f: Augmented features (gated on 18e — only if a gap remains)
 
@@ -1355,9 +1356,9 @@ If retraining-alone closes the splits regression and MixLow physics meets MDC202
 - [x] 18b: Existing model behavior on MixLow probed via BFS comparison
 - [x] 18c: Truth-aware eval on small sample done; retraining decision made with data
 - [x] 18d: Local batch reprocess complete; v2-style MixLow ROOT files in hand; splits + config in place; graphs packed (123K train / 26K val / 26K test)
-- [ ] 18e: Retrained models evaluated on MixLow test (TMR, RMR, splits/merges, cluster-physics); cross-eval back on MDC2025
-- [ ] 18f: (gated) Augmented features attempted only if 18e leaves a measurable gap
-- [ ] Sections §5.2, §5.3, §5.4 (and §5.5 after 18e) added to `docs/findings.md`
+- [x] 18e: Retrained models evaluated on MixLow test (TMR, RMR, splits/merges, cluster-physics); cross-eval on MDC2025 confirms regime specialization
+- [ ] 18f: (gated) Augmented features attempted only if 18e leaves a measurable gap — **not gated open**: 18e closes the §5.4 regression decisively (CCN+BFS10 |dE| 0.281 vs BFS 0.446, mean dr 1.038 vs 1.328). Skip 18f.
+- [x] Sections §5.2, §5.3, §5.4, §5.5 in `docs/findings.md`
 
 ---
 

@@ -408,6 +408,89 @@ The §4/§7 GNN advantage was a coupled *splits-reduction → fewer broken energ
 
 **Decision: proceed to Stage D + Stage E** (local batch reprocess + retrain on MixLow). The retraining target is specifically: recover the splits-reduction *and* the physics-residual lead at the new pileup density. Stage E will rerun §6.2-style physics on the retrained model and quantify whether it crosses BFS again (target: mean &#124;dE&#124; ≤ 0.40 MeV vs BFS = 0.44 MeV; mean dr ≤ 1.30 mm vs BFS = 1.32 mm).
 
+### 5.5 Stage E — Retrained on MixLow (2026-05-08)
+
+Trained both architectures on the v2-style MixLow data prepared in Stage D (134 / 29 / 29 file split, 123,390 train / 26,703 val / 26,738 test disk-graphs; norm stats computed on MixLow train).
+
+**Training (A100 MIG, batch_size=32):**
+
+| Model | Best val edge F1 | Best epoch | Epochs (early stop) | Notes |
+|-------|------------------|------------|---------------------|-------|
+| SimpleEdgeNet | 0.9708 | 2 | 17 | matches/beats v2 MDC2025 SEN (0.966) |
+| CCN Stage 1 (edge only) | 0.9718 | 2 | 17 | matches v2 MDC2025 CCN Stage 1 (0.961) |
+| CCN saliency (Stage 2, λ_node=0.3) | 0.9720 | 11 | 26 | val node F1 0.902, **P=1.000, R=0.821** (better than v2 saliency: 0.888 / P=1.000 / R=0.800) |
+
+Edge-F1 nudge from saliency Stage 2 over Stage 1 is essentially noise (+0.0002), as on MDC2025. The product is the perfect-precision node head, prerequisite for any §7.2-style saliency reweighting.
+
+**Threshold tuning (MixLow val, scripts/tune_threshold.py):**
+
+| Model | τ_edge (MixLow) | τ_edge (MDC2025 v2 for reference) |
+|-------|-----------------|-----------------------------------|
+| SEN | **0.34** | 0.26 |
+| CCN-saliency | **0.32** | 0.14 |
+
+Both retrained models prefer markedly higher τ_edge than their v2 counterparts — the edge logits run "more confident" on MixLow.
+
+**BFS expand-cut sweep (MixLow val, new `scripts/sweep_bfs_expand_cut.py`):** Swept {None, 3, 5, 7, 10, 12, 15, 20} MeV at the frozen τ_edge. **Verdict: EC=10 still the sweet spot for both models** (matches §7.3 finding on MDC2025) — TMR is flat from EC=None through 10, then drops a cliff at EC≥12 because too many low-E hits get trapped as singleton clusters under MixLow's denser pileup. Frozen `bfs_expand_cut: 10.0` in both MixLow configs.
+
+| Model | EC | TMR (val, prod cleanup) | Splits | Merges | DS &#124;dE&#124; (val, 2D) |
+|-------|----|-------------------------|--------|--------|------------------------|
+| SEN τ=0.34 | None | 0.6175 | 203 | 10,725 | 2.357 |
+| SEN τ=0.34 | **10** | 0.6188 | 253 | **10,012** | **1.294** |
+| CCN-sal τ=0.32 | None | 0.6177 | 244 | 9,452 | 1.588 |
+| CCN-sal τ=0.32 | **10** | 0.6180 | 274 | **9,144** | **1.033** |
+
+(Production-cleanup TMR caps at ~62% because singletons are filtered — they're ~38% of MixLow truth clusters.)
+
+**MixLow test-set evaluation (29 files × 500 events = 14,500 events, 27,161 disk-graphs, 471,393 truth clusters; CCN evaluated edges-only via `--ignore-tau-node` to match the §7.3/§7.4 CCN+BFS10 recipe):**
+
+| Metric | BFS | SEN+BFS10 (retrained) | **CCN+BFS10 (retrained)** |
+|--------|-----|------------------------|---------------------------|
+| Reco match rate | 98.5% | 98.6% | **98.6%** |
+| Truth match rate | 96.5% | 96.9% | **97.1%** |
+| Mean purity | 0.9911 | 0.9925 | **0.9930** |
+| Mean completeness | 0.9971 | **0.9979** | 0.9978 |
+| Splits | 2,986 | **2,406** | 2,550 |
+| Merges | 11,463 | 9,923 | **8,979** |
+| 1-hit TMR | 92.8% | 93.0% | **93.5%** |
+| 2-3 hit TMR | 98.7% | 99.3% | **99.4%** |
+
+Both retrained GNNs **beat BFS on every metric** (vs §5.4 where they regressed sharply) — splits **−19%** (SEN+BFS10) and merges **−22%** (CCN+BFS10) vs BFS. The §5.4 splits regression (CCN+BFS10 = 1,403 vs BFS = 647, 2.2× worse) inverts cleanly: now CCN+BFS10 wins splits on the larger test set proportionally.
+
+**MixLow test cluster-physics (`scripts/evaluate_cluster_physics.py --ignore-tau-node`, 27,161 disk-graphs):**
+
+| Method | matched | mean &#124;dE&#124; (MeV) | std dE | mean dr (mm) | &#124;dE&#124; > 10 MeV |
+|--------|---------|-------------------------|--------|---------------|----------------------|
+| BFS | 454,686 | 0.446 | 2.65 | 1.328 | 1.7% |
+| SEN bare | 454,612 | 0.334 | 2.08 | 1.157 | 1.2% |
+| SEN+BFS10 | 455,767 | 0.305 | 1.82 | 1.112 | 1.0% |
+| CCN bare | 456,183 | 0.293 | 1.84 | 1.048 | 1.0% |
+| **CCN+BFS10** | 456,787 | **0.281** | **1.71** | **1.038** | **0.9%** |
+
+Compared to §5.4 (MDC2025 weights, no retraining) — CCN+BFS10 mean &#124;dE&#124; **0.487 → 0.281 (−42%)**, mean dr **1.566 → 1.038 (−34%)**. The Stage-D plan targets (mean &#124;dE&#124; ≤ 0.40, mean dr ≤ 1.30 vs BFS = 0.44 / 1.32) are both **beaten by margin**: 0.281 / 1.038. The §7.4 GNN-advantage story (splits-reduction → fewer broken fragments → tighter physics residuals) is restored at the higher pileup density.
+
+By multiplicity (CCN+BFS10): 1-hit 0.223 / 0.62 (mean &#124;dE&#124;/dr); 2–3 hit 0.296 / 1.24; 4+ hit 0.429 / 1.60. By energy: <50 MeV 0.272 / 1.04; 50–200 MeV 0.567 / 1.13.
+
+**Cross-evaluation on MDC2025 test (does retraining specialize away?)** Using `data/processed/test.pt` (6,720 graphs from the v2 MDC2025 test split) with **MDC2025 normalization stats** (so the only change between baselines is the trained weights):
+
+| Method on MDC2025 test | TMR | Splits | Merges | all &#124;dE&#124; | DS &#124;dE&#124; (val 2D) |
+|-------------------------|-----|--------|--------|-----------------|------------------------|
+| v2 saliency (MDC2025-trained), bare | 0.5532 | 16 | 1,508 | 0.6982 | 0.7916 |
+| **v2 saliency (MDC2025-trained), EC=10** | **0.5544** | **22** | 1,478 | **0.6719** | **0.6117** |
+| MixLow saliency, bare | 0.5531 | 137 | 1,517 | 0.9329 | 1.4665 |
+| MixLow saliency, EC=10 | 0.5530 | **247** | 1,502 | **1.2129** | **2.8102** |
+
+(Production cleanup; TMR is bounded by the singleton fraction in MDC2025 truth.)
+
+**Verdict: MixLow retraining is regime-specific, not a universal upgrade.** On MDC2025 the MixLow-trained model produces **8.6× more splits** (137 vs 16) and **+85% worse downstream &#124;dE&#124;** than the MDC2025-trained baseline. Worse, EC=10 *hurts* this model on MDC2025 (DS &#124;dE&#124; 1.47 → 2.81) — that EC was tuned for MixLow's energy distribution; with MDC2025's slightly higher per-hit energies it traps more clusters as isolated leaves.
+
+**Implications for deployment:**
+1. The retrained MixLow checkpoints + their tuned (τ_edge, EC) constants are the right artifacts for *no-field-with-pileup* reconstruction; the v2 MDC2025 checkpoints remain the right artifacts for *with-field-with-pileup*.
+2. A unified model would require joint training on both regimes (Task 18g, deferred).
+3. In Offline, regime selection is a FHiCL decision — the model artifact + version-string check (Task 16b/16j) already make swapping models a per-FCL-instance change, no C++ rebuild needed.
+
+Plots and per-cluster CSVs in `outputs/run1b_mixlow_eval_retrained_bfs10/`, `outputs/cluster_physics_eval_mixlow_retrained/`, `outputs/sweep_bfs_ec_*_run1b_mixlow/`, `outputs/cross_eval_*_on_mdc2025/`. Configs frozen with the new (τ_edge, bfs_expand_cut) values: `configs/run1b_mixlow_default.yaml` (τ=0.34, EC=10), `configs/calo_cluster_net_saliency_run1b_mixlow.yaml` (τ=0.32, EC=10).
+
 ---
 
 ## 6. Cluster-level physics evaluation (downstream quantities)
