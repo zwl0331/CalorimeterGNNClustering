@@ -224,9 +224,15 @@ def main():
     parser = argparse.ArgumentParser(
         description="Cluster-level physics evaluation: energy, centroid, time")
     parser.add_argument("--root-dir", type=str,
-                        default="/exp/mu2e/data/users/wzhou2/GNN/root_files_v2")
-    parser.add_argument("--file-list", type=str, default="splits/val_files.txt",
-                        help="File listing ROOT files to process")
+                        default="/exp/mu2e/data/users/wzhou2/GNN/root_files_v2",
+                        help="Directory containing ROOT files. Source of truth for which "
+                             "files are evaluated: filenames in --file-list are resolved by "
+                             "basename against this directory; absolute paths in --file-list "
+                             "are NOT trusted.")
+    parser.add_argument("--file-list", type=str, default=None,
+                        help="If set, only evaluate ROOT files whose basenames appear in "
+                             "this list (one path per line). Otherwise glob *.root from "
+                             "--root-dir. Matches the --file-list semantics in evaluate_run1b.py.")
     parser.add_argument("--n-events", type=int, default=500,
                         help="Max events per file")
     parser.add_argument("--output-dir", type=str,
@@ -302,40 +308,36 @@ def main():
     crystal_disk_map = {cid: disk for cid, (disk, _, _) in crystal_map.items()}
     graph_cfg = base_cfg["graph"]
 
-    # ── Load file list ──
-    with open(args.file_list) as f:
-        file_list = [l.strip() for l in f if l.strip()]
-
-    # Resolve paths: try root-dir + filename
+    # ── Resolve file list ──
+    # --root-dir is authoritative: filenames are resolved as basenames within it.
+    # If --file-list is None, all *.root files in --root-dir are used.
     root_dir = Path(args.root_dir)
-    root_files = []
-    for fpath in file_list:
-        # Try as-is first, then just the filename in root_dir
-        p = Path(fpath)
-        if p.exists():
-            root_files.append(str(p))
-        else:
-            local = root_dir / p.name
+    if not args.file_list:                      # None or empty string
+        root_files = sorted(str(p) for p in root_dir.glob("*.root"))
+        print(f"Using all {len(root_files)} ROOT files from --root-dir={root_dir}")
+    else:
+        with open(args.file_list) as f:
+            file_list = [l.strip() for l in f if l.strip()]
+        print(f"Resolving {len(file_list)} entries from --file-list={args.file_list}")
+        print(f"  against --root-dir={root_dir} (basename-match)")
+        root_files = []
+        missing = []
+        for fpath in file_list:
+            local = root_dir / Path(fpath).name
             if local.exists():
                 root_files.append(str(local))
             else:
-                # Try matching by subrun ID
-                import re
-                m = re.search(r'001\d+_(\d+)', p.name)
-                if m:
-                    subrun = m.group(1)
-                    matches = list(root_dir.glob(f"*{subrun}*.root"))
-                    if matches:
-                        root_files.append(str(matches[0]))
-                        continue
-                print(f"  WARNING: cannot find {p.name} in {root_dir}, skipping")
-
-    if not root_files:
-        # Fall back: use all ROOT files in root_dir
-        root_files = sorted(str(p) for p in root_dir.glob("*.root"))
-        print(f"Using all {len(root_files)} ROOT files from {root_dir}")
-    else:
-        print(f"Found {len(root_files)} / {len(file_list)} ROOT files")
+                missing.append(Path(fpath).name)
+        if missing:
+            n = len(missing)
+            print(f"  WARNING: {n}/{len(file_list)} entries not in --root-dir; "
+                  f"first missing: {missing[0]}")
+        if not root_files:
+            raise SystemExit(
+                f"ERROR: 0 of {len(file_list)} --file-list entries found in --root-dir={root_dir}. "
+                "Either --file-list and --root-dir disagree, or pass --file-list '' to use "
+                "all *.root in --root-dir.")
+        print(f"Will process {len(root_files)} files")
 
     branches = [
         "calohits.crystalId_", "calohits.eDep_", "calohits.time_",

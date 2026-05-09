@@ -73,7 +73,7 @@ muse build -j64   # use many cores on build nodes
 - **Run1B (no field):** `/pnfs/mu2e/tape/phy-sim/mcs/mu2e/FlateMinus-KL/Run1Bah_best_v1_4-001/art/` (20 files, run 001450, 24 GB). No magnetic field scenario — electrons travel straight. Corresponding NTS files (without ancestry) at `/pnfs/mu2e/tape/phy-nts/nts/mu2e/FlateMinus-KL/Run1B-005/root/` (20 files, ~40K events each).
 
 **Reprocessed ROOT files (v2, with ancestry):**
-- **MDC2025:** `root_files_v2/` — **deleted 2026-04-13** to free quota (97 GB). Reproducible from MCS art files via FermiGrid using `from_mcs-calo-only.fcl` + modified EventNtuple. Grid submission script: `root_files_v2/grid_submit.sh`. Original cluster `90854576`.
+- **MDC2025:** `root_files_v2/` — **train split deleted 2026-04-13** to free quota (~68 GB freed). **Val + test still present** (15 files, 29 GB) — needed for any future evaluation. Train is reproducible from MCS art files via FermiGrid using `from_mcs-calo-only.fcl` + modified EventNtuple. Grid submission script: `root_files_v2/grid_submit.sh`. Original cluster `90854576`.
 - **Run1B:** `root_files_run1b/` — reprocessing via FermiGrid (pending). Grid submission script: `root_files_run1b/grid_submit.sh`, workflow project `eventntuple_run1b`.
 
 **Batch reprocessing notes:**
@@ -136,7 +136,8 @@ OMP_NUM_THREADS=4 python3 scripts/evaluate_new_truth.py --split val --max-events
 OMP_NUM_THREADS=4 PYTHONUNBUFFERED=1 python3 -u scripts/evaluate_run1b.py --n-events 500
 
 # Cluster-level physics evaluation (energy, centroid, time residuals)
-OMP_NUM_THREADS=4 PYTHONUNBUFFERED=1 python3 -u scripts/evaluate_cluster_physics.py --n-events 500
+# Default: glob all *.root in --root-dir. For val-only, pass --file-list explicitly.
+OMP_NUM_THREADS=4 PYTHONUNBUFFERED=1 python3 -u scripts/evaluate_cluster_physics.py --n-events 500 --file-list splits/val_files.txt
 ```
 
 ---
@@ -185,7 +186,7 @@ ROOT files v2 (EventNtuple/ntuple TTree, with ancestorSimIds)
 
 | What | Path |
 |------|------|
-| MDC2025 v2 ROOT files | `root_files_v2/` — **deleted 2026-04-13** (97 GB freed). Reproducible via FermiGrid (cluster `90854576`). |
+| MDC2025 v2 ROOT files | `root_files_v2/` — **train split deleted 2026-04-13** (~68 GB freed); val + test still present (15 files, 29 GB). Train reproducible via FermiGrid (cluster `90854576`). |
 | Run1B v2 ROOT files | `root_files_run1b/` — 20 files via FermiGrid (cluster `27583402`, 405 MB total, no-field scenario) |
 | Run1B MCS art files | `/pnfs/mu2e/tape/phy-sim/mcs/mu2e/FlateMinus-KL/Run1Bah_best_v1_4-001/art/` (20 files, 24 GB) |
 | Run1B NTS files (no ancestry) | `/pnfs/mu2e/tape/phy-nts/nts/mu2e/FlateMinus-KL/Run1B-005/root/` (20 files, ~40K events each) |
