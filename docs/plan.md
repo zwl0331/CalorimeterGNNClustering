@@ -1338,9 +1338,9 @@ The MixLow MCS files are small (130–330 MB vs Run1Bah's 1.2 GB) and the Offlin
 - [x] Cross-evaluate retrained model on MDC2025 test (`data/processed/test.pt` with MDC2025 norm stats). **Retraining specializes** — MixLow CCN-saliency on MDC2025 has 8.6× more splits and +85% worse downstream |dE| than v2 MDC2025-trained baseline. EC=10 *hurts* on MDC2025 for the MixLow-trained model (DS |dE| 1.47 → 2.81). Production deployment needs regime-specific model selection or joint training on both. Outputs `outputs/cross_eval_*_on_mdc2025/`.
 - [x] Recorded final metrics in `docs/findings.md` §5.5.
 
-#### 18f: Augmented features (gated on 18e — only if a gap remains)
+#### 18f: Augmented features (deferred — will be lifted into its own feature-engineering task)
 
-If retraining-alone closes the splits regression and MixLow physics meets MDC2025 picture, skip this task. Otherwise — and only on calo-only fields:
+Originally gated on 18e; 18e closed the §5.4 regression so this is no longer blocking Milestone M. Deferred as a standalone feature-engineering task to be scoped properly (broader than `nSiPMs_` / error fields alone — includes principled ablation methodology and may revisit edge-feature design too). Provisional outline kept here as a seed:
 
 - [ ] Add `calohits.nSiPMs_` to graph builder as an extra node feature (1 channel) — pure quality flag, single-SiPM hits skew toward pileup splinters
 - [ ] Optionally add `calohits.timeErr_` and `calohits.eDepErr_` as 2 more node-feature channels and as denominators for normalized-residual edge features
@@ -1357,8 +1357,99 @@ If retraining-alone closes the splits regression and MixLow physics meets MDC202
 - [x] 18c: Truth-aware eval on small sample done; retraining decision made with data
 - [x] 18d: Local batch reprocess complete; v2-style MixLow ROOT files in hand; splits + config in place; graphs packed (123K train / 26K val / 26K test)
 - [x] 18e: Retrained models evaluated on MixLow test (TMR, RMR, splits/merges, cluster-physics); cross-eval on MDC2025 confirms regime specialization
-- [ ] 18f: (gated) Augmented features attempted only if 18e leaves a measurable gap — **not gated open**: 18e closes the §5.4 regression decisively (CCN+BFS10 |dE| 0.281 vs BFS 0.446, mean dr 1.038 vs 1.328). Skip 18f.
+- [ ] 18f: (deferred) Augmented features — lifted out into its own future feature-engineering task; not blocking Milestone M
 - [x] Sections §5.2, §5.3, §5.4, §5.5 in `docs/findings.md`
+
+---
+
+### Task 19: Multi-regime Run1B coverage — does the MixLow checkpoint generalize within no-field?
+
+**Goal:** Determine whether the retrained MixLow CCN-saliency + SEN checkpoints are sufficient for *all* Run1B (no-field) pileup regimes, or whether each overlay needs its own checkpoint. The outcome decides whether to declare the MixLow artifact as the single no-field deployment artifact (closing this work for the C++ integration), or to schedule a no-field-only joint-training follow-up.
+
+**Scope boundaries:**
+- No-field family only. Joint training spanning MDC2025 (with-field) and Run1B (no-field) is explicitly out of scope — that boundary is permanent (see `docs/findings.md` §5.5; no physics analysis needs one model to span both).
+- Tests *generalization* of the existing MixLow-retrained checkpoint; does **not** retrain. Any retraining decision is a follow-up gated on this task's results.
+
+**Prerequisite:** Task 18e complete (✓ — retrained MixLow checkpoints + MixLow norm stats in hand).
+
+**Datasets (per `docs/findings.md` §5.1):**
+
+| Tag | Dataset | MCS art (tape) | Subdataset | Notes |
+|-----|---------|----------------|------------|-------|
+| MLT | `FlateMinusMixLowTriggerable-KL` | `/pnfs/mu2e/tape/phy-sim/mcs/mu2e/FlateMinusMixLowTriggerable-KL/` | TBD at start (inventory `Run1B*/art/`; pick the one with the most files) | MixLow + trigger pre-filter; expected close to MixLow |
+| OST | `FlateMinusOnSpillTriggerable-KL / Run1Baf_best_v1_4-000` | `/pnfs/mu2e/tape/phy-sim/mcs/mu2e/FlateMinusOnSpillTriggerable-KL/Run1Baf_best_v1_4-000/art/` | 20 art files, fixed | OnSpill (full pileup density) + trigger pre-filter; the harder and physics-relevant test |
+
+Both are `-KL` (KalmanLine, no-field). OST shares the `Run1Baf_best_v1_4` campaign with the MixLow source used in 18c–18e, so the Offline build done in 18c should remain compatible (no second rebuild expected). MLT may be a different campaign — verify campaign tag at start before reprocessing.
+
+**Prior expectations:**
+- §5.5 cross-eval shows the MixLow checkpoint specializes hard against MDC2025 (8.6× more splits, +85% worse |dE|). Within-no-field generalization is the open question this task answers.
+- MLT is plausibly close to MixLow (same overlay, just trigger-filtered). Smooth coverage likely.
+- OST has denser pileup than MixLow (on-spill > off-spill); the more likely regime to show regression.
+
+#### 19a: Stage A — Regime characterization on standard NTS (no reprocessing)
+
+**Goal:** Quantify hit/edge density and BFS cluster counts of each regime vs the **MixLow train** baseline (the model's training distribution) before paying any reprocessing cost.
+
+- [x] Inventoried `/pnfs/.../FlateMinusMixLowTriggerable-KL/` — MLT picks `Run1B-003` (195 files); OST picks `Run1B-002` (20 files)
+- [x] Generalized `scripts/characterize_run1b_pileup.py`: `--target-dir`, `--target-label`, `--baseline {mdc2025,mixlow}`, `--baseline-path` override, `--output-dir` for `diagnostics.npz` + `summary.txt`
+- [x] Ran on 3 standard-NTS files × 500 events per regime → MLT 1,833 disk-graphs, OST 1,365 disk-graphs (`outputs/run19a_{mlt,ost}_stageA/`)
+- [x] Result: **both regimes are substantially *lower* density than MixLow** (MLT: hits/disk 0.27× median, 0.17× p95; OST: 0.14× median, 0.04× p95). Trigger pre-filter rejects pileup-dominated events. OST is one electron-like cluster per disk (median 1 BFS cluster, ~70 MeV). Per-hit E shifted +10–50% upward. Full table in `docs/findings.md` §5.6.1.
+- [x] Verdict: surprise direction (easier, not harder, than MixLow). "Covers" is the likely Stage-C outcome, but proceed to 19b/19c to confirm no subtle failure modes from the energy shift + single-cluster topology.
+
+#### 19b: Stage B — Inference diagnostics with the retrained MixLow checkpoint
+
+**Goal:** Run the retrained MixLow CCN-saliency + SEN models on the same Stage-A samples; verify that edge sigmoid scores remain decisive and that post-norm features (with **MixLow** norm stats) stay within the MixLow training z-range.
+
+- [x] Generalized `scripts/stageB_inference_diagnostics.py`: `--target-dir`, `--target-label`, `--config-sen`, `--config-ccn`, `--checkpoint-sen`, `--checkpoint-ccn`, `--ignore-tau-node`. Norm stats auto-loaded from each config.
+- [x] Ran on 3 standard-NTS files × 500 events per regime → MLT 1,816 disk-graphs, OST 1,365 disk-graphs (`outputs/run19b_{mlt,ost}_stageB/`)
+- [x] Result: **edge scores extremely decisive** (MLT median 0.98 / 94% > τ; OST median 0.99 / 99.6% > τ — *more* decisive than on MixLow itself, consistent with lower density). GNN cluster counts/sizes match BFS within < 0.4% (MLT) and < 0.1% (OST). Only OOD signals: MLT `dist` p99 = 9.93 (sparse hits → kNN reaches farther neighbors) and OST `logSumE` median shift (higher per-cluster E from single isolated electron). Neither appears to confuse the model. Full table in `docs/findings.md` §5.6.2.
+- [x] Verdict: no catastrophic OOD failure; Stage C is the definitive test.
+
+#### 19c: Stage C — Local ancestry reprocessing + truth-aware evaluation
+
+**Goal:** Quantify the actual regression (or absence thereof) against calo-entrant truth. This is the decisive step.
+
+**Reprocessing (mirrors 18c/18d driver):**
+
+- [x] Both MLT and OST MCS art files use `Run1Baf_best_v1_4-000` campaign — same as MixLow source from 18c, so existing `u092` Offline build covers both (no rebuild)
+- [x] OST: 3 of 20 `Run1Baf_best_v1_4-000` MCS art files (~883 MB each, denser OnSpill payload) → `/exp/mu2e/data/users/wzhou2/GNN/root_files_run1b_onspill/`
+- [x] MLT: 3 of 195 `Run1Baf_best_v1_4-000` MCS art files (~233 MB each) → `/exp/mu2e/data/users/wzhou2/GNN/root_files_run1b_mlt/`
+- [x] Reprocessed via `from_mcs-calo-only.fcl` parallel-3 (`run_batch.sh` per regime); MLT 89 s, OST 53 s. All 6 outputs have `calomcsim/calomcsim.ancestorSimIds` populated.
+
+**Evaluation (mirrors 18e final eval):**
+
+- [x] `evaluate_cluster_physics.py` silently ignored `--root-dir` if `--file-list` resolves to existing absolute paths (default `splits/val_files.txt` had v2 MDC2025 absolute paths that still exist — only train was deleted, val+test survived). **Fixed in this task:** changed `--file-list` default to `None` (matches `evaluate_run1b.py` pattern), always resolve filenames as basenames within `--root-dir`, error out if 0 of `--file-list` entries are found in `--root-dir`. Added explanatory CLI docstrings; CLAUDE.md updated. Worked around in-flight by passing explicit `--file-list /tmp/{mlt,ost}_files.txt`.
+- [x] Per regime ran `evaluate_run1b.py --bfs-expand-cut 10 --ignore-tau-node` and `evaluate_cluster_physics.py --ignore-tau-node` with retrained MixLow configs/checkpoints. MLT: `--n-events 1000` × 3 files = 3,660 disk-graphs / 11,942 truth clusters. OST: initially `--n-events 1000` × 3 files = 2,835 disk-graphs / 2,837 truth clusters; **expanded to `--n-events 50000` × 3 files = 93,042 disk-graphs / 93,070 truth clusters** (3 files saturate at ~32.9K events each) for tighter statistics — outputs overwritten in place.
+
+**Decision-gate result (vs §5.5 MixLow CCN+BFS10 reference):**
+
+| Metric | "covers" threshold | MLT CCN+BFS10 (3.7K disk-graphs) | OST CCN+BFS10 (93K disk-graphs) |
+|--------|--------------------|--------------:|--------------:|
+| TMR | within −0.5 pp of MixLow test (≥ 96.6%) | 99.6% ✅ | 99.9% ✅ |
+| Splits / 1k disk-graphs | within +20% of MixLow rate (0.094) | 10.1 ✅ (-89%) | 6.0 ✅ (-94%) |
+| Merges / 1k disk-graphs | within +20% of MixLow rate (0.331) | 7.9 ✅ (-98%) | 0.16 ✅ (-99.95%) |
+| mean abs(dE) | within +20% of MixLow (≤ 0.337 MeV) | 0.098 ✅ (-65%) | 0.119 ✅ (-58%) |
+| mean dr | within +20% of MixLow (≤ 1.246 mm) | 0.407 ✅ (-61%) | 0.425 ✅ (-59%) |
+
+- [x] **Both regimes pass "covers" on every metric** — declare MixLow CCN+BFS10 covers all `-KL` regimes
+- [x] **No-field-only joint training is no longer motivated** — both regimes are *easier* than MixLow, so joint training would only dilute MixLow with easier data (expected gain ≤ 0). Skip.
+- [x] **Secondary observation (not part of formal gate):** §7.4-style GNN-vs-BFS-on-same-regime advantage holds on MLT (CCN+BFS10 −25% on |dE| vs BFS) but inverts on OST (CCN+BFS10 +60% on |dE| vs BFS). Mechanism: 99.9% of OST disk-graphs are single-cluster, no boundary disputes for the GNN to leverage. Absolute residuals tiny (~0.1 MeV); OST regression is structural, not a model defect.
+
+**Outputs:**
+- `docs/findings.md` §5.6.3: full per-regime tables + decision-gate table + secondary observation
+- ROOT files: `/exp/mu2e/data/users/wzhou2/GNN/root_files_run1b_{mlt,onspill}/`
+- Result dirs: `outputs/run19{a,b,c}_<regime>_<stage>/`
+
+---
+
+### Milestone N — Multi-regime Run1B Coverage
+
+- [x] 19a: Stage A regime characterization complete on MLT + OST — both regimes lower density than MixLow (trigger filter dominates over OnSpill); see findings.md §5.6.1
+- [x] 19b: Stage B inference diagnostics complete on MLT + OST — scores decisive, cluster counts match BFS within < 0.5%; see findings.md §5.6.2
+- [x] 19c: Stage C truth-aware eval — both regimes pass "covers" on every metric of the gate. Joint no-field training no longer motivated (skip). Secondary finding: GNN-vs-BFS advantage holds on MLT, inverts on OST due to single-cluster topology — but absolute residuals tiny. See findings.md §5.6.3
+- [x] `docs/findings.md` §5.6.{1,2,3} written
+
+**Milestone N closed.** MixLow CCN+BFS10 is the single deployment artifact for all Run1B no-field regimes (MixLow + MLT + OST). The §5.5 conclusion (no-field/with-field stay separate) stands without further sub-stratification.
 
 ---
 

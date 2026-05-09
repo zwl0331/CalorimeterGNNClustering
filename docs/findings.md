@@ -485,11 +485,176 @@ By multiplicity (CCN+BFS10): 1-hit 0.223 / 0.62 (mean &#124;dE&#124;/dr); 2–3 
 **Verdict: MixLow retraining is regime-specific, not a universal upgrade.** On MDC2025 the MixLow-trained model produces **8.6× more splits** (137 vs 16) and **+85% worse downstream &#124;dE&#124;** than the MDC2025-trained baseline. Worse, EC=10 *hurts* this model on MDC2025 (DS &#124;dE&#124; 1.47 → 2.81) — that EC was tuned for MixLow's energy distribution; with MDC2025's slightly higher per-hit energies it traps more clusters as isolated leaves.
 
 **Implications for deployment:**
-1. The retrained MixLow checkpoints + their tuned (τ_edge, EC) constants are the right artifacts for *no-field-with-pileup* reconstruction; the v2 MDC2025 checkpoints remain the right artifacts for *with-field-with-pileup*.
-2. A unified model would require joint training on both regimes (Task 18g, deferred).
+1. The retrained MixLow checkpoints + their tuned (τ_edge, EC) constants are the right artifacts for *no-field-with-pileup* reconstruction; the v2 MDC2025 checkpoints remain the right artifacts for *with-field-with-pileup*. **No-field and with-field will always be separate model artifacts** — joint training across that boundary is explicitly out of scope (no physics analysis needs one model to span both).
+2. Whether *one* no-field model can cover all pileup overlays (`MixLow`, `MixLowTriggerable`, `OnSpillTriggerable`) is open. Task 19 measures the gap on the other two `-KL` regimes; if it's wide, joint training across the no-field regimes only becomes the deferred fallback.
 3. In Offline, regime selection is a FHiCL decision — the model artifact + version-string check (Task 16b/16j) already make swapping models a per-FCL-instance change, no C++ rebuild needed.
 
 Plots and per-cluster CSVs in `outputs/run1b_mixlow_eval_retrained_bfs10/`, `outputs/cluster_physics_eval_mixlow_retrained/`, `outputs/sweep_bfs_ec_*_run1b_mixlow/`, `outputs/cross_eval_*_on_mdc2025/`. Configs frozen with the new (τ_edge, bfs_expand_cut) values: `configs/run1b_mixlow_default.yaml` (τ=0.34, EC=10), `configs/calo_cluster_net_saliency_run1b_mixlow.yaml` (τ=0.32, EC=10).
+
+### 5.6 Multi-regime Run1B coverage (Task 19)
+
+**Goal:** test whether the MixLow-retrained CCN+BFS10 (and SEN+BFS10) generalize to the other two Run1B (no-field) pileup regimes — `FlateMinusMixLowTriggerable-KL` (MLT) and `FlateMinusOnSpillTriggerable-KL` (OST). Same staged Stage A → C protocol as Task 18, evaluated against the MixLow train baseline. Joint training across the no-field/with-field boundary remains explicitly out of scope (§5.5).
+
+#### 5.6.1 Stage A — regime characterization (no reprocessing) (2026-05-09)
+
+Sample: 3 standard-NTS files × 500 events for each regime.
+- MLT: `Run1B-003` (195 files available; 1,833 disk-graphs analyzed)
+- OST: `Run1B-002` (20 files available; 1,365 disk-graphs analyzed)
+- Baseline: MixLow train packed graphs (123,390 disk-graphs, no trigger pre-filter)
+
+Same builder (`r_max=210 mm`, `dt_max=25 ns`) as 18a/§5.2.
+
+**Per-disk-graph distributions (median / p95 / p99 / max) — and ratio vs MixLow train:**
+
+| Quantity | MixLow train (no trigger) | MLT | OST | MLT ratio (med / p95) | OST ratio (med / p95) |
+|---|---|---|---|---|---|
+| Hits | 22 / 113 / 168 / 259 | 6 / 19 / 25 / 38 | 3 / 5 / 6 / 8 | 0.27× / 0.17× | **0.14× / 0.04×** |
+| Edges (undirected) | 21 / 128 / 216 / 423 | 6 / 23 / 32 / 63 | 3 / 10 / 15 / 28 | 0.29× / 0.18× | **0.14× / 0.08×** |
+| Mean hit E (MeV) | 14.3 / 18.7 / 22.5 / 47.4 | 15.7 / 28.4 / 40.1 / 54.8 | 20.7 / 37.4 / 44.3 / 49.0 | 1.10× / 1.52× | **1.45× / 2.00×** |
+| Sum disk E (MeV) | 325 / 1,607 / 2,393 / 3,564 | 113 / 266 / 356 / 533 | 69 / 92 / 98 / 103 | 0.35× / 0.17× | **0.21× / 0.06×** |
+
+**BFS reco (per disk-graph):**
+
+| Method | BFS clusters/disk (med / p95 / p99 / max) | Cluster size (med / p95 / max) | Cluster E (med / p95 / max, MeV) |
+|---|---|---|---|
+| MLT (BFS) | 3 / 8 / 11 / 17 | 2 / 5 / 9 | 31 / 85 / 103 |
+| OST (BFS) | 1 / 1 / 1 / 2 | 3 / 5 / 8 | 69 / 92 / 103 |
+
+**Surprise direction:** Both Triggerable regimes are **substantially *lower* density** than the MixLow training distribution. OST in particular looks like one clean electron-like cluster per disk (median 1 BFS cluster, cluster E ~70 MeV, no disk-graph with > 2 BFS clusters in the sample). The §5.1 expectation ("OnSpill is full pileup density → harder regime") was wrong on the wrong side: the **trigger pre-filter** is the dominant effect, not the OnSpill timing window. Trigger fires on track + cluster signatures, so it keeps the events that have a clear physics candidate and discards the pileup-dominated tail.
+
+**Implications:**
+- These are the events Mu2e reco *actually sees* in operational running (post-trigger). Training on un-triggered MixLow has been training on a *harder* distribution than the deployment target.
+- Decision-gate tolerances in plan.md Task 19 were calibrated for *harder*-than-MixLow regimes. With both regimes easier, a "covers" verdict is the likely outcome — but per-hit energy is shifted up (mean E +10–50%) and OST has a structurally different topology (single-cluster-per-disk), so Stage B/C are still worth running to confirm there are no subtle failure modes the MixLow-trained model wasn't optimized for.
+- The "no-field-only joint training" fallback identified in §5.5 has lower expected upside than previously thought — the regimes that would feed into joint training are *easier* than MixLow, not harder, so adding them likely just adds noise to the training set without addressing a real gap. This will be re-evaluated after Stage C.
+
+Outputs: `outputs/run19a_mlt_stageA/`, `outputs/run19a_ost_stageA/` (`diagnostics.npz` + `summary.txt` each).
+
+#### 5.6.2 Stage B — inference diagnostics (MixLow-trained model on MLT, OST) (2026-05-09)
+
+Same 1,500-event / 1,816-disk-graph (MLT) and 1,500-event / 1,365-disk-graph (OST) samples. Models = retrained MixLow checkpoints (SEN τ=0.34, CCN-saliency τ=0.32) with **MixLow** norm stats (`data/normalization_stats_run1b_mixlow.pt`); CCN run with `--ignore-tau-node` to match the §7.3/§7.4 deployment recipe.
+
+**Edge sigmoid scores (raw model output, all directed edges):**
+
+| Regime | Model | mean | median | p95 | p99 | edges > τ |
+|--------|-------|-----:|-------:|----:|----:|----------:|
+| MixLow (§5.3 ref) | SEN τ=0.26 | 0.65 | 0.80 | 0.98 | 0.997 | 79.7% |
+| MixLow (§5.3 ref) | CCN τ=0.14 | 0.67 | 0.89 | 0.999 | 0.9998 | 78.7% |
+| **MLT** | SEN τ=0.34 | **0.897** | **0.979** | 0.997 | 0.999 | **94.0%** |
+| **MLT** | CCN τ=0.32 | **0.904** | **0.985** | 0.998 | 0.999 | **93.9%** |
+| **OST** | SEN τ=0.34 | **0.964** | **0.986** | 0.997 | 0.999 | **99.6%** |
+| **OST** | CCN τ=0.32 | **0.969** | **0.989** | 0.995 | 0.997 | **99.4%** |
+
+Both retrained models produce *more* decisive scores on MLT/OST than on MixLow itself — consistent with §5.6.1 (lower density, less ambiguous edges). Not a sign of confusion.
+
+**Cluster count and size per disk (BFS vs SEN vs CCN):**
+
+| Regime | Method | Clusters/disk (med / p95 / p99) | Cluster size (med / p95 / max) | Total clusters |
+|--------|--------|---|---|---:|
+| MLT | BFS | 3 / 8 / 11 | 2 / 5 / – | 6,008 |
+| MLT | SEN | 3 / 8 / 11 | 2 / 5 / – | 5,988 |
+| MLT | CCN | 3 / 8 / 11 | 2 / 5 / – | 5,985 |
+| OST | BFS | 1 / 1 / 1 | 3 / 5 / – | 1,374 |
+| OST | SEN | 1 / 1 / 1 | 3 / 5 / – | 1,373 |
+| OST | CCN | 1 / 1 / 1 | 3 / 5 / – | 1,375 |
+
+GNN cluster counts and sizes track BFS within < 0.4% on MLT and < 0.1% on OST. (For comparison §5.3 on MixLow saw the same percentile match — that's not an "all good" signal by itself; truth-aware Stage C is what finally separates the methods.)
+
+**Post-normalization edge features (using MixLow norm stats):**
+
+| Feature | MixLow (§5.3) p99 | MLT p99 | OST p99 | Notes |
+|---|---:|---:|---:|---|
+| dx | 1.75 | 4.31 | 1.51 | OST tighter; MLT heavier-tail (sparse hits) |
+| dy | 1.91 | 5.12 | 1.28 | same |
+| **dist** | **2.57** | **9.93** | 0.98 | MLT has long tail (kNN k_min=3 reaches farther neighbors when hits are sparse); OST tightest |
+| dt | 4.67 | 2.48 | 0.34 | both regimes much tighter timing than MixLow |
+| dlogE | 1.99 | 2.52 | 2.66 | similar |
+| Easym | 1.66 | 1.78 | 1.80 | similar |
+| logSumE | 1.89 | 2.52 | 2.58 | OST shift in *median* (0.98 vs 0 expected): cluster total energy higher (single ~70 MeV cluster) |
+| dr | 3.23 | 2.27 | 1.83 | both tighter |
+
+Only real OOD signal is **MLT dist p99 = 9.93** (kNN reaching farther neighbors when hits are sparse) and the **OST logSumE median shift** (consistent with §5.6.1's higher per-hit/per-disk energies). Neither appears to confuse the model — edge scores remain decisively positive in both regimes.
+
+**Stage-B verdict:** No catastrophic OOD failure. Both regimes are easier than MixLow training (lower density, simpler topology); the retrained model handles them with high confidence. BFS-vs-GNN cluster-count agreement is essentially perfect. Stage C will quantify whether the small remaining GNN/BFS disagreements (MLT: 23 fewer GNN clusters out of 6,000) translate into measurable splits/merges/physics differences vs truth.
+
+Outputs: `outputs/run19b_mlt_stageB/`, `outputs/run19b_ost_stageB/`.
+
+#### 5.6.3 Stage C — local ancestry reprocess + truth-aware evaluation (2026-05-09)
+
+Reprocessed 3 MCS art files per regime locally on `mu2ebuild02.fnal.gov` against the existing `u092` Offline build (no rebuild — both MLT and OST use the `Run1Baf_best_v1_4-000` campaign, same as the MixLow source from 18c). MLT files ~233 MB each, OST files ~883 MB (~4× MLT, denser OnSpill payload). Reprocessing wall time: MLT 89 s, OST 53 s (parallel-3, OST cached).
+
+**Outputs:**
+- MLT v2 ROOT: `/exp/mu2e/data/users/wzhou2/GNN/root_files_run1b_mlt/` (3 files, total 14 MB output, 9,567 events)
+- OST v2 ROOT: `/exp/mu2e/data/users/wzhou2/GNN/root_files_run1b_onspill/` (3 files, total 54 MB output, ~98K events)
+- All output ROOT files have `calomcsim/calomcsim.ancestorSimIds` populated (verified)
+
+Eval: MLT used 1,000 events × 3 files = 3,000 events (matches §5.4 protocol). OST expanded to 50,000 events × 3 files = 98,756 events (3 files saturate at ~32.9K events each, sample size now comparable to MixLow test scale — bigger sample resolves what the prior 1K/file run could not separate from noise). Models = retrained MixLow SEN (τ=0.34) and CCN-saliency (τ=0.32), CCN run with `--ignore-tau-node` to match the §7.3/§7.4 deployment recipe. BFS-style traversal with `expand_cut=10 MeV` for the +BFS10 columns.
+
+**Standard clustering (`evaluate_run1b.py --bfs-expand-cut 10 --ignore-tau-node`):**
+
+| Regime | Method | Disk-graphs | Truth clusters | Reco | RMR | TMR | Purity | Compl | Splits | Merges |
+|--------|--------|------------:|---------------:|-----:|----:|----:|-------:|------:|-------:|-------:|
+| **MLT** | BFS       | 3,660 | 11,942 | 11,983 | 99.2% | 99.5% | 0.9984 | 0.9986 | 51 | 34 |
+| **MLT** | SEN+BFS10 | 3,660 | 11,942 | 11,969 | 99.3% | 99.5% | 0.9984 | 0.9991 | 38 | 33 |
+| **MLT** | **CCN+BFS10** | 3,660 | 11,942 | 11,971 | **99.3%** | **99.6%** | **0.9985** | **0.9991** | **37** | **29** |
+| **OST** | BFS       | 93,042 | 93,070 | 93,478 | 99.5% | **100.0%** | 0.9998 | **0.9990** | 433 | **16** |
+| **OST** | **SEN+BFS10** | 93,042 | 93,070 | 93,375 | **99.6%** | 99.9% | 0.9998 | 0.9990 | **354** | 15 |
+| **OST** | CCN+BFS10 | 93,042 | 93,070 | 93,551 | 99.4% | 99.9% | 0.9998 | 0.9987 | 554 | 15 |
+
+**Cluster physics (`evaluate_cluster_physics.py --ignore-tau-node`):**
+
+| Regime | Method | Matched | mean &#124;dE&#124; (MeV) | mean dr (mm) | dr > 10 mm |
+|--------|--------|--------:|-----:|-----:|-----:|
+| **MLT** | BFS       | 11,885 | 0.131 | 0.567 | — |
+| **MLT** | SEN+BFS10 | 11,755 | 0.110 | 0.458 | — |
+| **MLT** | CCN bare  | 11,755 | 0.101 | 0.397 | — |
+| **MLT** | **CCN+BFS10** | 11,759 | **0.098** | **0.407** | — |
+| **OST** | BFS       | 93,035 | 0.099 | 0.414 | 0.5% |
+| **OST** | SEN bare  | 93,003 | **0.088** | **0.351** | 0.4% |
+| **OST** | **SEN+BFS10** | 93,003 | 0.097 | 0.366 | 0.4% |
+| **OST** | CCN bare  | 92,947 | 0.102 | 0.394 | 0.5% |
+| **OST** | CCN+BFS10 | 92,947 | 0.119 | 0.425 | 0.6% |
+
+**Decision-gate evaluation (vs §5.5 MixLow CCN+BFS10 reference: TMR 97.1%, splits-rate 0.094/disk-graph, merges-rate 0.331/disk-graph, mean &#124;dE&#124; 0.281 MeV, mean dr 1.038 mm):**
+
+| Metric | MLT CCN+BFS10 | vs gate | OST CCN+BFS10 | vs gate |
+|---|---|---|---|---|
+| TMR | 99.6% | +2.5 pp ✅ covers | 99.9% | +2.8 pp ✅ covers |
+| Splits/1k disk-graphs | 10.1 | -89% ✅ covers | 6.0 | -94% ✅ covers |
+| Merges/1k disk-graphs | 7.9 | -98% ✅ covers | 0.16 | -99.95% ✅ covers |
+| Mean &#124;dE&#124; (MeV) | 0.098 | -65% ✅ covers | 0.119 | -58% ✅ covers |
+| Mean dr (mm) | 0.407 | -61% ✅ covers | 0.425 | -59% ✅ covers |
+
+**Both regimes pass "covers" on every metric of the gate** — the MixLow checkpoint covers all `-KL` Run1B regimes by the §5.5-anchored criterion. This is the formal Task 19 verdict: **no joint no-field training needed**; the existing MixLow checkpoint is the deployment artifact for the entire no-field family.
+
+**Secondary observation — GNN-vs-BFS on the same regime (the §7.4-style "GNN advantage" picture, with OST measured on the bigger 99K-event sample):**
+
+| Regime | mean &#124;dE&#124; vs BFS-on-same-regime | mean dr vs BFS-on-same-regime | Splits vs BFS |
+|---|---|---|---|
+| MixLow test (§5.5 ref, CCN+BFS10) | 0.281 vs 0.446 → **−37%** | 1.038 vs 1.328 → **−22%** | 2,550 vs 2,986 → **−15%** |
+| MLT (CCN+BFS10) | 0.098 vs 0.131 → **−25%** | 0.407 vs 0.567 → **−28%** | 37 vs 51 → **−27%** |
+| OST (SEN+BFS10) | 0.097 vs 0.099 → **−2%** | 0.366 vs 0.414 → **−12%** | 354 vs 433 → **−18%** |
+| OST (CCN+BFS10) | 0.119 vs 0.099 → **+20%** | 0.425 vs 0.414 → **+3%** | 554 vs 433 → **+28%** |
+
+The deployment-recipe **CCN+BFS10** keeps the §7.4-style advantage on MLT (-25% on |dE|) but loses it on OST (+20%). Two interesting OST-specific subfindings:
+- **SEN+BFS10 is the GNN winner on OST**, beating BFS on every metric (-2% |dE|, -12% dr, -18% splits). The MixLow §5.5 ranking (CCN > SEN on physics) inverts on OST.
+- **Bare CCN beats CCN+BFS10 on OST** (|dE| 0.102 vs 0.119, dr 0.394 vs 0.425). The BFS-style expand-cut step actively *hurts* on OST: clusters are uniformly small (median 2–3 hits), so the expand-cut occasionally rejects legitimate hits without ever helping (no fringe pileup hits to filter — those are exactly what the trigger pre-filter already removed). On MixLow, BFS10 helped CCN reduce splits (§5.5); on OST it adds them.
+
+**Failure-mode breakdown of the OST 0.1% TMR gap (CCN+BFS10 missed 89 truth clusters that BFS matched, out of 93,070):**
+
+| Method | Missed (TMR loss) | Explanation |
+|---|---:|---|
+| BFS | 35 (0.04%) | Tiny low-E clusters (median E 7.4 MeV, mostly singletons). Same pileup-singleton physics noise as §1.5 — irreducible. |
+| SEN-only | 33 | 32 of 33 (97%) are 2-hit clusters in the 50–100 MeV range (one mid-energy electron deposits in two crystals; GNN classifies the inter-hit edge as negative → splits the cluster into two singletons). |
+| CCN-only | 89 | 87 of 89 (98%) are the same 2-hit, 50–100 MeV pattern. |
+
+**Mechanism:** the GNN was trained on MixLow's overlapping-cluster regime where it had to learn to *break* edges between adjacent showers. On OST's clean single-electron topology there's nothing to break, so this aggressiveness very rarely fires (~1 in 1,000 of the 2-hit, 50–100 MeV bin) — but when it does, BFS would have been fine. CCN is more aggressive than SEN at edge-splitting (consistent with its higher capacity), so CCN-only failures (~0.1%) are roughly 3× SEN-only (~0.04%).
+
+**Implications for deployment:**
+1. **MixLow CCN+BFS10 is the single no-field deployment artifact.** It covers MLT (where it adds value over BFS) and OST (where it loses to BFS by ~20% on |dE| and produces ~0.1% spurious 2-hit splits). The §5.5 conclusion that no-field/with-field stay separate artifacts stands; we do *not* need a sub-stratification within no-field.
+2. **OST is structurally easy and BFS-favorable.** 99.9% of disk-graphs are single-cluster, where the GNN has no boundary disputes to leverage. The BFS-expand-cut step actively hurts on OST too (small clusters don't benefit from expand-cut). Bare CCN or BFS would do slightly better on OST physics — but the difference is sub-percent in absolute MeV and *not* worth maintaining a regime-conditional inference recipe in Offline.
+3. **The "no-field-only joint training" fallback identified in §5.5 is no longer motivated.** Joint training would dilute MixLow training on data that is easier than MixLow itself; expected gain ≤ 0. **Skip the joint-training task.**
+
+Outputs: `outputs/run19c_{mlt,ost}_eval/` (standard clustering CSV + plots), `outputs/run19c_{mlt,ost}_phys/` (cluster-physics summary + plots), `/tmp/{mlt,ost}_files.txt` (file lists used).
 
 ---
 

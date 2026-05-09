@@ -1,17 +1,34 @@
-"""Task 18b — Stage B inference diagnostics on FlateMinusMixLow-KL.
+"""Stage B inference diagnostics (Tasks 18b, 19b).
 
-Run existing SEN + CCN models on MixLow standard NTS files (no ancestry, no
-truth-aware metrics). Compare GNN cluster assignments to BFS as a reference,
-flag distribution drift in edge features and edge-score saturation.
+Run trained SEN + CCN models on a chosen regime's standard NTS files
+(no ancestry, no truth-aware metrics). Compare GNN cluster assignments
+to BFS as a reference; flag distribution drift in edge features and
+edge-score saturation.
 
 Diagnostics:
-  - Edge logit (raw model output) distribution: detect threshold saturation
-    or score collapse vs MDC2025 train regime.
+  - Edge logit (raw model output) distribution: detect threshold
+    saturation or score collapse vs the model's training regime.
   - Fraction of edges classified positive at tuned threshold.
   - Cluster count per disk: BFS vs SEN vs CCN.
   - Cluster size distribution comparison.
-  - Edge-feature distribution after MDC2025 normalization: detect z-score
-    drift (model is being asked to interpret OOD inputs).
+  - Edge-feature distribution after normalization (using each model
+    config's own norm stats): detect z-score drift.
+
+Examples:
+  # Task 18b (legacy default): MixLow with v2 MDC2025-trained models
+  python scripts/stageB_inference_diagnostics.py \\
+    --target-dir /pnfs/mu2e/tape/phy-nts/nts/mu2e/FlateMinusMixLow-KL/Run1B-004/root \\
+    --target-label MixLow
+
+  # Task 19b: MLT or OST with retrained MixLow models
+  python scripts/stageB_inference_diagnostics.py \\
+    --target-dir /pnfs/mu2e/tape/phy-nts/nts/mu2e/FlateMinusMixLowTriggerable-KL/Run1B-003/root \\
+    --target-label MLT \\
+    --config-sen configs/run1b_mixlow_default.yaml \\
+    --checkpoint-sen outputs/runs/simple_edge_net_run1b_mixlow/checkpoints/best_model.pt \\
+    --config-ccn configs/calo_cluster_net_saliency_run1b_mixlow.yaml \\
+    --checkpoint-ccn outputs/runs/calo_cluster_net_run1b_mixlow_saliency/checkpoints/best_model.pt \\
+    --output-dir outputs/run19b_mlt_stageB
 """
 
 import argparse
@@ -64,7 +81,7 @@ def fmt_dist(arr, name, prec=2):
     )
 
 
-def load_model(config_path, checkpoint_path, device):
+def load_model(config_path, checkpoint_path, device, ignore_tau_node=False):
     with open(config_path) as f:
         cfg = yaml.safe_load(f)
     model = build_model(cfg)
@@ -75,12 +92,14 @@ def load_model(config_path, checkpoint_path, device):
     tau_edge = inf_cfg["tau_edge"]
     has_node_head = cfg["model"].get("name", "SimpleEdgeNet") == "CaloClusterNet"
     lambda_node = cfg.get("train", {}).get("lambda_node", 0.0)
-    tau_node = inf_cfg.get("tau_node") if (has_node_head and lambda_node > 0) else None
+    if ignore_tau_node:
+        tau_node = None
+    else:
+        tau_node = inf_cfg.get("tau_node") if (has_node_head and lambda_node > 0) else None
     return model, cfg, tau_edge, tau_node
 
 
 def n_clusters_from_labels(labels):
-    """Count distinct nonneg cluster IDs among hit labels."""
     arr = np.asarray(labels)
     if arr.size == 0:
         return 0
@@ -99,51 +118,74 @@ def cluster_sizes(labels):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--mixlow-dir", type=Path,
-        default=Path("/pnfs/mu2e/tape/phy-nts/nts/mu2e/FlateMinusMixLow-KL/Run1B-004/root"),
-    )
+    parser.add_argument("--target-dir", type=Path, required=True,
+                        help="Standard NTS dir to characterize (raw .root files)")
+    parser.add_argument("--target-label", type=str, required=True,
+                        help="Display label for target (e.g. 'MLT', 'OST', 'MixLow')")
     parser.add_argument("--n-files", type=int, default=3)
     parser.add_argument("--max-events-per-file", type=int, default=500)
     parser.add_argument("--device", type=str, default="cpu")
     parser.add_argument(
-        "--output-dir", type=Path, default=Path("outputs/run1b_mixlow_stageB")
-    )
+        "--config-sen", type=Path, default=Path("configs/default.yaml"),
+        help="SEN config (norm stats + graph cfg + tau_edge)")
+    parser.add_argument(
+        "--checkpoint-sen", type=Path,
+        default=Path("outputs/runs/simple_edge_net_v2/checkpoints/best_model.pt"))
+    parser.add_argument(
+        "--config-ccn", type=Path,
+        default=Path("configs/calo_cluster_net_saliency.yaml"))
+    parser.add_argument(
+        "--checkpoint-ccn", type=Path,
+        default=Path("outputs/runs/calo_cluster_net_v2_saliency/checkpoints/best_model.pt"))
+    parser.add_argument(
+        "--ignore-tau-node", action="store_true",
+        help="Force CCN cluster reco to ignore the saliency head "
+             "(matches the §7.3/§7.4 CCN+BFS10 deployment recipe)")
+    parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     device = torch.device(args.device)
     print(f"Device: {device}")
+    print(f"Target: {args.target_label} ({args.target_dir})")
+    print(f"ignore_tau_node: {args.ignore_tau_node}\n")
 
-    # Load both v2 models
     models = {}
     for name, cfg_path, ckpt_path in [
-        ("SEN",
-         "configs/default.yaml",
-         "outputs/runs/simple_edge_net_v2/checkpoints/best_model.pt"),
-        ("CCN",
-         "configs/calo_cluster_net_saliency.yaml",
-         "outputs/runs/calo_cluster_net_v2_saliency/checkpoints/best_model.pt"),
+        ("SEN", args.config_sen, args.checkpoint_sen),
+        ("CCN", args.config_ccn, args.checkpoint_ccn),
     ]:
-        model, cfg, tau_edge, tau_node = load_model(cfg_path, ckpt_path, device)
+        model, cfg, tau_edge, tau_node = load_model(
+            cfg_path, ckpt_path, device, ignore_tau_node=args.ignore_tau_node,
+        )
         models[name] = {"model": model, "cfg": cfg,
-                        "tau_edge": tau_edge, "tau_node": tau_node}
-        print(f"  {name}: tau_edge={tau_edge}, tau_node={tau_node}")
+                        "tau_edge": tau_edge, "tau_node": tau_node,
+                        "config_path": str(cfg_path),
+                        "checkpoint_path": str(ckpt_path)}
+        print(f"  {name}: cfg={cfg_path}  ckpt={ckpt_path}")
+        print(f"       tau_edge={tau_edge}  tau_node={tau_node}")
+        print(f"       norm_stats={cfg['data']['normalization_stats']}")
 
-    graph_cfg = models["SEN"]["cfg"]["graph"]
-    stats = load_stats(models["SEN"]["cfg"]["data"]["normalization_stats"])
+    # Both models must share graph cfg + norm stats.
+    sen_cfg = models["SEN"]["cfg"]
+    ccn_cfg = models["CCN"]["cfg"]
+    if sen_cfg["data"]["normalization_stats"] != ccn_cfg["data"]["normalization_stats"]:
+        print("WARNING: SEN and CCN configs reference different norm-stats files; "
+              "using SEN's for normalization. Edge-feature OOD numbers will be "
+              "valid for SEN; CCN-side interpretation may differ.")
+    graph_cfg = sen_cfg["graph"]
+    stats = load_stats(sen_cfg["data"]["normalization_stats"])
     crystal_map = load_crystal_map("data/crystal_geometry.csv")
 
-    files = sorted(args.mixlow_dir.rglob("*.root"))[: args.n_files]
-    print(f"\nMixLow files: {len(files)}")
+    files = sorted(args.target_dir.rglob("*.root"))[: args.n_files]
+    print(f"\n{args.target_label} files: {len(files)}")
     print(f"Max events per file: {args.max_events_per_file}\n")
 
-    # Diagnostic accumulators
-    edge_logits_all = {"SEN": [], "CCN": []}     # raw scores per edge
-    edge_pos_frac = {"SEN": [], "CCN": []}        # frac positive per disk-graph
+    edge_logits_all = {"SEN": [], "CCN": []}
+    edge_pos_frac = {"SEN": [], "CCN": []}
     n_clusters_per_disk = {"BFS": [], "SEN": [], "CCN": []}
     cluster_sizes_all = {"BFS": [], "SEN": [], "CCN": []}
-    edge_feat_norm_per_dim = [[] for _ in range(8)]   # post-norm distributions
+    edge_feat_norm_per_dim = [[] for _ in range(8)]
 
     n_disk_graphs = 0
     n_events_total = 0
@@ -165,7 +207,6 @@ def main():
             times = np.array(arrays["calohits.time_"][ev], dtype=np.float64)
             cidx = np.array(arrays["calohits.clusterIdx_"][ev], dtype=np.int64)
 
-            # Resolve disk + (x, y) from crystal_map (standard NTS lacks crystalPos_)
             xs = np.zeros(n_total, dtype=np.float64)
             ys = np.zeros(n_total, dtype=np.float64)
             disks = np.full(n_total, -1, dtype=np.int64)
@@ -204,16 +245,13 @@ def main():
                 )
                 normalize_graph(data, stats)
 
-                # Sample post-norm edge features (subsample to keep memory bounded)
                 ea = data.edge_attr.numpy()
                 for d in range(8):
                     edge_feat_norm_per_dim[d].extend(ea[:, d].tolist())
 
-                # BFS clusters from clusterIdx_
                 n_clusters_per_disk["BFS"].append(n_clusters_from_labels(d_cidx))
                 cluster_sizes_all["BFS"].extend(cluster_sizes(d_cidx))
 
-                # Run both GNNs
                 for name in ("SEN", "CCN"):
                     m_info = models[name]
                     with torch.no_grad():
@@ -226,12 +264,8 @@ def main():
                         logits = out.cpu().numpy()
                         node_logits = None
 
-                    scores = 1.0 / (1.0 + np.exp(-logits))   # sigmoid
+                    scores = 1.0 / (1.0 + np.exp(-logits))
                     edge_logits_all[name].extend(scores.tolist())
-
-                    # Both directions of each undirected edge are present in
-                    # edge_index; count positive fraction over directed edges
-                    # (consistent with how the model and the cluster reco use it).
                     pos_frac = float((scores > m_info["tau_edge"]).mean())
                     edge_pos_frac[name].append(pos_frac)
 
@@ -254,41 +288,47 @@ def main():
     elapsed = time.time() - t0
     print(f"\nProcessed {n_events_total} events → {n_disk_graphs} disk-graphs in {elapsed:.1f}s")
 
-    # ------------------------------------------------------------------
-    # Diagnostics output
-    # ------------------------------------------------------------------
-    print("\n=== Edge sigmoid scores (raw model output, all directed edges) ===")
+    out_lines = []
+
+    def emit(line):
+        print(line)
+        out_lines.append(line)
+
+    emit("\n=== Edge sigmoid scores (raw model output, all directed edges) ===")
     for name in ("SEN", "CCN"):
         arr = np.asarray(edge_logits_all[name])
         n_pos = int((arr > models[name]["tau_edge"]).sum())
-        print(f"  {name} (tau={models[name]['tau_edge']}):")
-        print(fmt_dist(arr, "score", prec=4))
-        print(f"    edges>tau: {n_pos:>9} / {len(arr):>9} ({100*n_pos/max(len(arr),1):.2f}%)")
+        emit(f"  {name} (tau={models[name]['tau_edge']}):")
+        emit(fmt_dist(arr, "score", prec=4))
+        emit(f"    edges>tau: {n_pos:>9} / {len(arr):>9} ({100*n_pos/max(len(arr),1):.2f}%)")
 
-    print("\n=== Per-disk-graph positive-edge fraction ===")
+    emit("\n=== Per-disk-graph positive-edge fraction ===")
     for name in ("SEN", "CCN"):
         arr = np.asarray(edge_pos_frac[name])
-        print(fmt_dist(arr, f"{name} pos-frac", prec=3))
+        emit(fmt_dist(arr, f"{name} pos-frac", prec=3))
 
-    print("\n=== Clusters per disk (cluster reco) ===")
+    emit("\n=== Clusters per disk (cluster reco) ===")
     for name in ("BFS", "SEN", "CCN"):
-        print(fmt_dist(np.asarray(n_clusters_per_disk[name]), f"{name:<3}", prec=1))
+        emit(fmt_dist(np.asarray(n_clusters_per_disk[name]), f"{name:<3}", prec=1))
 
-    print("\n=== Cluster sizes (hits per cluster) ===")
+    emit("\n=== Cluster sizes (hits per cluster) ===")
     for name in ("BFS", "SEN", "CCN"):
-        print(fmt_dist(np.asarray(cluster_sizes_all[name]), f"{name:<3}", prec=1))
+        emit(fmt_dist(np.asarray(cluster_sizes_all[name]), f"{name:<3}", prec=1))
 
-    print("\n=== Post-normalization edge features (z-score should be ~ N(0,1)) ===")
+    emit("\n=== Post-normalization edge features (z-score should be ~ N(0,1)) ===")
     feat_names = ["dx", "dy", "dist", "dt", "dlogE", "Easym", "logSumE", "dr"]
     for d, nm in enumerate(feat_names):
         arr = np.asarray(edge_feat_norm_per_dim[d])
-        print(fmt_dist(arr, f"feat[{d}] {nm:<7}", prec=2))
+        emit(fmt_dist(arr, f"feat[{d}] {nm:<7}", prec=2))
 
-    # ------------------------------------------------------------------
-    # Save raw arrays for plotting later
-    # ------------------------------------------------------------------
     np.savez(
         args.output_dir / "stageB_diagnostics.npz",
+        target_label=args.target_label,
+        sen_config=str(args.config_sen),
+        sen_checkpoint=str(args.checkpoint_sen),
+        ccn_config=str(args.config_ccn),
+        ccn_checkpoint=str(args.checkpoint_ccn),
+        ignore_tau_node=args.ignore_tau_node,
         edge_scores_SEN=np.asarray(edge_logits_all["SEN"]),
         edge_scores_CCN=np.asarray(edge_logits_all["CCN"]),
         edge_pos_frac_SEN=np.asarray(edge_pos_frac["SEN"]),
@@ -301,7 +341,9 @@ def main():
         sizes_CCN=np.asarray(cluster_sizes_all["CCN"]),
         **{f"edge_feat_norm_{d}": np.asarray(edge_feat_norm_per_dim[d]) for d in range(8)},
     )
-    print(f"\nSaved raw arrays to {args.output_dir / 'stageB_diagnostics.npz'}")
+    with open(args.output_dir / "summary.txt", "w") as f:
+        f.write("\n".join(out_lines) + "\n")
+    print(f"\nSaved diagnostics + summary to {args.output_dir}/")
 
 
 if __name__ == "__main__":
