@@ -28,7 +28,7 @@ Examples:
     --checkpoint-sen outputs/runs/simple_edge_net_run1b_mixlow/checkpoints/best_model.pt \\
     --config-ccn configs/calo_cluster_net_saliency_run1b_mixlow.yaml \\
     --checkpoint-ccn outputs/runs/calo_cluster_net_run1b_mixlow_saliency/checkpoints/best_model.pt \\
-    --output-dir outputs/run19b_mlt_stageB
+    --output-dir outputs/task19b_mlt_stageB
 """
 
 import argparse

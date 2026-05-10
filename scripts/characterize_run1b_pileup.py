@@ -25,7 +25,7 @@ Examples:
   python scripts/characterize_run1b_pileup.py \
     --target-dir /pnfs/mu2e/tape/phy-nts/nts/mu2e/FlateMinusMixLowTriggerable-KL/Run1B-003/root \
     --target-label MLT --baseline mixlow \
-    --output-dir outputs/run19a_mlt_stageA
+    --output-dir outputs/task19a_mlt_stageA
 """
 
 from pathlib import Path

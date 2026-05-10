@@ -527,7 +527,7 @@ Same builder (`r_max=210 mm`, `dt_max=25 ns`) as 18a/§5.2.
 - Decision-gate tolerances in plan.md Task 19 were calibrated for *harder*-than-MixLow regimes. With both regimes easier, a "covers" verdict is the likely outcome — but per-hit energy is shifted up (mean E +10–50%) and OST has a structurally different topology (single-cluster-per-disk), so Stage B/C are still worth running to confirm there are no subtle failure modes the MixLow-trained model wasn't optimized for.
 - The "no-field-only joint training" fallback identified in §5.5 has lower expected upside than previously thought — the regimes that would feed into joint training are *easier* than MixLow, not harder, so adding them likely just adds noise to the training set without addressing a real gap. This will be re-evaluated after Stage C.
 
-Outputs: `outputs/run19a_mlt_stageA/`, `outputs/run19a_ost_stageA/` (`diagnostics.npz` + `summary.txt` each).
+Outputs: `outputs/task19a_mlt_stageA/`, `outputs/task19a_ost_stageA/` (`diagnostics.npz` + `summary.txt` each).
 
 #### 5.6.2 Stage B — inference diagnostics (MixLow-trained model on MLT, OST) (2026-05-09)
 
@@ -576,7 +576,7 @@ Only real OOD signal is **MLT dist p99 = 9.93** (kNN reaching farther neighbors 
 
 **Stage-B verdict:** No catastrophic OOD failure. Both regimes are easier than MixLow training (lower density, simpler topology); the retrained model handles them with high confidence. BFS-vs-GNN cluster-count agreement is essentially perfect. Stage C will quantify whether the small remaining GNN/BFS disagreements (MLT: 23 fewer GNN clusters out of 6,000) translate into measurable splits/merges/physics differences vs truth.
 
-Outputs: `outputs/run19b_mlt_stageB/`, `outputs/run19b_ost_stageB/`.
+Outputs: `outputs/task19b_mlt_stageB/`, `outputs/task19b_ost_stageB/`.
 
 #### 5.6.3 Stage C — local ancestry reprocess + truth-aware evaluation (2026-05-09)
 
@@ -654,7 +654,7 @@ The deployment-recipe **CCN+BFS10** keeps the §7.4-style advantage on MLT (-25%
 2. **OST is structurally easy and BFS-favorable.** 99.9% of disk-graphs are single-cluster, where the GNN has no boundary disputes to leverage. The BFS-expand-cut step actively hurts on OST too (small clusters don't benefit from expand-cut). Bare CCN or BFS would do slightly better on OST physics — but the difference is sub-percent in absolute MeV and *not* worth maintaining a regime-conditional inference recipe in Offline.
 3. **The "no-field-only joint training" fallback identified in §5.5 is no longer motivated.** Joint training would dilute MixLow training on data that is easier than MixLow itself; expected gain ≤ 0. **Skip the joint-training task.**
 
-Outputs: `outputs/run19c_{mlt,ost}_eval/` (standard clustering CSV + plots), `outputs/run19c_{mlt,ost}_phys/` (cluster-physics summary + plots), `/tmp/{mlt,ost}_files.txt` (file lists used).
+Outputs: `outputs/task19c_{mlt,ost}_eval/` (standard clustering CSV + plots), `outputs/task19c_{mlt,ost}_phys/` (cluster-physics summary + plots), `/tmp/{mlt,ost}_files.txt` (file lists used).
 
 ---
 

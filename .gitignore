@@ -73,11 +73,11 @@ slides/
 # splits/run1b_mixlow_*_files.txt -- frozen MixLow splits, commit these
 outputs/cluster_physics_eval_bfs_test/
 outputs/cluster_physics_eval_test_full
-outputs/run19a_mlt_stageA/
-outputs/run19a_ost_stageA/
-outputs/run19b_mlt_stageB/
-outputs/run19b_ost_stageB/
-outputs/run19c_mlt_eval/
-outputs/run19c_mlt_phys/
-outputs/run19c_ost_eval/
-outputs/run19c_ost_phys/
+outputs/task19a_mlt_stageA/
+outputs/task19a_ost_stageA/
+outputs/task19b_mlt_stageB/
+outputs/task19b_ost_stageB/
+outputs/task19c_mlt_eval/
+outputs/task19c_mlt_phys/
+outputs/task19c_ost_eval/
+outputs/task19c_ost_phys/

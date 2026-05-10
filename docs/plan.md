@@ -1392,7 +1392,7 @@ Both are `-KL` (KalmanLine, no-field). OST shares the `Run1Baf_best_v1_4` campai
 
 - [x] Inventoried `/pnfs/.../FlateMinusMixLowTriggerable-KL/` — MLT picks `Run1B-003` (195 files); OST picks `Run1B-002` (20 files)
 - [x] Generalized `scripts/characterize_run1b_pileup.py`: `--target-dir`, `--target-label`, `--baseline {mdc2025,mixlow}`, `--baseline-path` override, `--output-dir` for `diagnostics.npz` + `summary.txt`
-- [x] Ran on 3 standard-NTS files × 500 events per regime → MLT 1,833 disk-graphs, OST 1,365 disk-graphs (`outputs/run19a_{mlt,ost}_stageA/`)
+- [x] Ran on 3 standard-NTS files × 500 events per regime → MLT 1,833 disk-graphs, OST 1,365 disk-graphs (`outputs/task19a_{mlt,ost}_stageA/`)
 - [x] Result: **both regimes are substantially *lower* density than MixLow** (MLT: hits/disk 0.27× median, 0.17× p95; OST: 0.14× median, 0.04× p95). Trigger pre-filter rejects pileup-dominated events. OST is one electron-like cluster per disk (median 1 BFS cluster, ~70 MeV). Per-hit E shifted +10–50% upward. Full table in `docs/findings.md` §5.6.1.
 - [x] Verdict: surprise direction (easier, not harder, than MixLow). "Covers" is the likely Stage-C outcome, but proceed to 19b/19c to confirm no subtle failure modes from the energy shift + single-cluster topology.
 
@@ -1401,7 +1401,7 @@ Both are `-KL` (KalmanLine, no-field). OST shares the `Run1Baf_best_v1_4` campai
 **Goal:** Run the retrained MixLow CCN-saliency + SEN models on the same Stage-A samples; verify that edge sigmoid scores remain decisive and that post-norm features (with **MixLow** norm stats) stay within the MixLow training z-range.
 
 - [x] Generalized `scripts/stageB_inference_diagnostics.py`: `--target-dir`, `--target-label`, `--config-sen`, `--config-ccn`, `--checkpoint-sen`, `--checkpoint-ccn`, `--ignore-tau-node`. Norm stats auto-loaded from each config.
-- [x] Ran on 3 standard-NTS files × 500 events per regime → MLT 1,816 disk-graphs, OST 1,365 disk-graphs (`outputs/run19b_{mlt,ost}_stageB/`)
+- [x] Ran on 3 standard-NTS files × 500 events per regime → MLT 1,816 disk-graphs, OST 1,365 disk-graphs (`outputs/task19b_{mlt,ost}_stageB/`)
 - [x] Result: **edge scores extremely decisive** (MLT median 0.98 / 94% > τ; OST median 0.99 / 99.6% > τ — *more* decisive than on MixLow itself, consistent with lower density). GNN cluster counts/sizes match BFS within < 0.4% (MLT) and < 0.1% (OST). Only OOD signals: MLT `dist` p99 = 9.93 (sparse hits → kNN reaches farther neighbors) and OST `logSumE` median shift (higher per-cluster E from single isolated electron). Neither appears to confuse the model. Full table in `docs/findings.md` §5.6.2.
 - [x] Verdict: no catastrophic OOD failure; Stage C is the definitive test.
 
@@ -1438,7 +1438,7 @@ Both are `-KL` (KalmanLine, no-field). OST shares the `Run1Baf_best_v1_4` campai
 **Outputs:**
 - `docs/findings.md` §5.6.3: full per-regime tables + decision-gate table + secondary observation
 - ROOT files: `/exp/mu2e/data/users/wzhou2/GNN/root_files_run1b_{mlt,onspill}/`
-- Result dirs: `outputs/run19{a,b,c}_<regime>_<stage>/`
+- Result dirs: `outputs/task19{a,b,c}_<regime>_<stage>/`
 
 ---
 
