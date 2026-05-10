@@ -569,11 +569,14 @@ def main():
                      "CaloClusterNet": "seagreen"}
     method_short = {"BFS": "BFS", "SimpleEdgeNet": "SEN", "CaloClusterNet": "CCN"}
 
+    sen_tau = models["SimpleEdgeNet"]["tau_edge"]
+    ccn_tau = models["CaloClusterNet"]["tau_edge"]
+
     fig, axes = plt.subplots(2, 3, figsize=(20, 12))
     fig.suptitle(
         f"Run1B (No Field) Evaluation -- {n_disk_graphs:,} disk-graphs, "
         f"{n_events_total:,} events\n"
-        f"Models trained on MDC2025 (with field), evaluated on Run1B (no field)",
+        f"SEN (τ={sen_tau:.2f}), CCN (τ={ccn_tau:.2f}) vs BFS baseline",
         fontsize=13, fontweight="bold")
 
     # 1. Overall match rates
@@ -687,7 +690,7 @@ def main():
 
     table = ax.table(
         cellText=table_data,
-        colLabels=["Metric", "BFS", "SEN (0.26)", "CCN (0.20)"],
+        colLabels=["Metric", "BFS", f"SEN ({sen_tau:.2f})", f"CCN ({ccn_tau:.2f})"],
         cellLoc="center", loc="center")
     table.auto_set_font_size(False)
     table.set_fontsize(10)
