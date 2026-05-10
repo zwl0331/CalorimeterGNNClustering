@@ -1338,15 +1338,9 @@ The MixLow MCS files are small (130–330 MB vs Run1Bah's 1.2 GB) and the Offlin
 - [x] Cross-evaluate retrained model on MDC2025 test (`data/processed/test.pt` with MDC2025 norm stats). **Retraining specializes** — MixLow CCN-saliency on MDC2025 has 8.6× more splits and +85% worse downstream |dE| than v2 MDC2025-trained baseline. EC=10 *hurts* on MDC2025 for the MixLow-trained model (DS |dE| 1.47 → 2.81). Production deployment needs regime-specific model selection or joint training on both. Outputs `outputs/cross_eval_*_on_mdc2025/`.
 - [x] Recorded final metrics in `docs/findings.md` §5.5.
 
-#### 18f: Augmented features (deferred — will be lifted into its own feature-engineering task)
+#### 18f: Augmented features — superseded by Tasks 20 + 21 (run1a-first)
 
-Originally gated on 18e; 18e closed the §5.4 regression so this is no longer blocking Milestone M. Deferred as a standalone feature-engineering task to be scoped properly (broader than `nSiPMs_` / error fields alone — includes principled ablation methodology and may revisit edge-feature design too). Provisional outline kept here as a seed:
-
-- [ ] Add `calohits.nSiPMs_` to graph builder as an extra node feature (1 channel) — pure quality flag, single-SiPM hits skew toward pileup splinters
-- [ ] Optionally add `calohits.timeErr_` and `calohits.eDepErr_` as 2 more node-feature channels and as denominators for normalized-residual edge features
-- [ ] Rebuild graphs, compute fresh norm stats, retrain SEN + CCN with augmented input dims
-- [ ] Ablation table: existing 6+8 vs augmented 9+10 on MixLow test set; retain only if ≥1 pp TMR or ≥10% splits improvement over the 6+8 baseline
-- [ ] If retained: update `metadata_props` in ONNX export (Task 16j) so the C++ graph maker emits matching tensors
+Originally gated on 18e; 18e closed the §5.4 regression so this is no longer blocking Milestone M. **Superseded by Tasks 20 + 21**, which run the graph-cutoff revisit and the per-feature ablation on **run1a** first (cleaner deployment baseline at §7.4 CCN+BFS10, topology decisions easier to settle on the better-understood with-field regime). Run1b/MixLow extension is a follow-up gated on whether the run1a ablation lands; if it does, re-open this stub or fold the run1b-extension into a Task 22.
 
 ---
 
@@ -1357,7 +1351,7 @@ Originally gated on 18e; 18e closed the §5.4 regression so this is no longer bl
 - [x] 18c: Truth-aware eval on small sample done; retraining decision made with data
 - [x] 18d: Local batch reprocess complete; v2-style MixLow ROOT files in hand; splits + config in place; graphs packed (123K train / 26K val / 26K test)
 - [x] 18e: Retrained models evaluated on MixLow test (TMR, RMR, splits/merges, cluster-physics); cross-eval on MDC2025 confirms regime specialization
-- [ ] 18f: (deferred) Augmented features — lifted out into its own future feature-engineering task; not blocking Milestone M
+- [ ] 18f: superseded by Task 21 (run1a feature engineering); run1b/MixLow extension is a follow-up gated on run1a results
 - [x] Sections §5.2, §5.3, §5.4, §5.5 in `docs/findings.md`
 
 ---
@@ -1450,6 +1444,128 @@ Both are `-KL` (KalmanLine, no-field). OST shares the `Run1Baf_best_v1_4` campai
 - [x] `docs/findings.md` §5.6.{1,2,3} written
 
 **Milestone N closed.** MixLow CCN+BFS10 is the single deployment artifact for all Run1B no-field regimes (MixLow + MLT + OST). The §5.5 conclusion (no-field/with-field stay separate) stands without further sub-stratification.
+
+---
+
+### Task 20: Run1a graph cutoff revisit (r_max + dt_max)
+
+**Goal:** Push run1a metrics by lifting the graph-construction cutoffs that Task 17 left as accepted caps. §2.1 showed 1.88–1.90% of multi-hit clusters under calo-entrant truth have at least one pair > 210 mm; the 99th-percentile max-pair-distance is ≈ 245 mm. Task 17 accepted the cap because TMR (94.3%) was the dominant bottleneck, but with §7.4's CCN+BFS10 deployment the topology cap (~98%) is now within reach of the model — bumping the cheap cap gives ~1 pp of TMR headroom that the model can capture. `dt_max=25 ns` was never re-scanned under calo-entrant truth; this task closes that gap before deciding both cutoffs jointly.
+
+**Scenario:** run1a / MDC2025 only. Run1b/MixLow cutoff revisit is a follow-up (gated on whether run1a results justify the rebuild cost there).
+
+**Prerequisite:** none. Operates on packed v2 graphs `data/processed/{train,val,test}.pt` for scans; rebuilds from `root_files_v2/` for retraining. **Note:** v2 train ROOT files were deleted 2026-04-13 (CLAUDE.md key data paths); 20c will need to either resubmit FermiGrid cluster `90854576` or rerun from MCS art at `/pnfs/mu2e/persistent/datasets/phy-sim/mcs/mu2e/FlateMinusMix1BBTriggered/MDC2025af_best_v1_1/art/` (50 files).
+
+#### 20a: dt distribution scan (analog to Task 17 §2.1)
+
+- [ ] Write `scripts/scan_dt_window.py` mirroring `scripts/regate_pair_recall.py`: read packed v2 graphs, compute per-multi-hit-cluster max |Δt| from `g.x[:, 1]`, report distribution + percentiles + over-cap fraction at the current `dt_max=25 ns`
+- [ ] Stratify by cluster multiplicity (2-hit, 3-4 hit, 5+ hit) — same buckets as Task 17
+- [ ] Output: console summary + result row for `docs/findings.md` §2.2
+
+#### 20b: Decide new (r_max, dt_max)
+
+- [ ] r_max: pre-decided to **245 mm** (Task 17's 99th-percentile target — ~24 extra edges/graph, lifts topology cap from ~98% to ~99%)
+- [ ] dt_max: pick from 20a — target the 99th-percentile max-cluster-Δt unless that pushes past ~50 ns (where most edges become time-incompatible and the time filter loses its purpose); in that case keep at the 99.5th percentile or hold at 25 ns and document why
+- [ ] Document choice + reason in `docs/findings.md` §2.2
+
+#### 20c: Rebuild + repack graphs at new cutoffs
+
+- [ ] Restore v2 train ROOT files (FermiGrid cluster `90854576` resubmit, or local batch from MCS art) — only needed if 20b lifts a cutoff
+- [ ] Update `configs/calo_cluster_net.yaml` and `configs/default.yaml` with new `r_max_mm` / `dt_max_ns`
+- [ ] Rebuild train/val/test graphs via `scripts/build_all_graphs.sh`
+- [ ] Recompute `data/normalization_stats.pt` from new train split (z-score stats shift because dist/Δt distributions widen)
+- [ ] Repack to `data/processed/{train,val,test}.pt`
+- [ ] Sanity check: rerun `scripts/regate_pair_recall.py` against the new packed graphs and confirm pair-loss is now ≤ 1% (down from the 1.88–1.90% at r_max=210)
+
+#### 20d: Retrain CCN at new cutoffs (no new features)
+
+- [ ] Stage 1 (edge-only): `scripts/train_gnn.py --config configs/calo_cluster_net.yaml --device cuda --run-name calo_cluster_net_v2_cutoffs_stage1`
+- [ ] Stage 2 (saliency): resume from Stage 1 with the saliency config; run name `..._cutoffs_saliency`
+- [ ] Threshold tune `tau_edge` on val (`scripts/tune_threshold.py`); freeze in `inference.tau_edge` of the stage-2 config
+- [ ] BFS_EC sweep at frozen τ (`scripts/sweep_bfs_expand_cut.py`): confirm EC=10 still optimal or report new optimum
+
+#### 20e: Test-set eval + decision gate
+
+- [ ] `scripts/evaluate_test.py` and `scripts/evaluate_cluster_physics.py` on the retrained checkpoint at the tuned τ
+- [ ] Compare to §7.4 CCN+BFS10 baseline on every metric (TMR, RMR, splits, merges, all-clusters |dE|/dr, downstream |dE|/dr at E ≥ 50 MeV)
+- [ ] **Decision gate:** keep the new cutoffs only if downstream |dE| improves by ≥5% **or** TMR improves by ≥0.3 pp without regressing the other; otherwise revert (cutoffs back to 210/25) and document the null
+- [ ] If kept: regenerate `tests/parity/calo_cluster_net_v2_stage1.parity.json` (CLAUDE.md invariant 9), re-export ONNX with the new checkpoint, update §2.2 + §7.4 in `docs/findings.md`
+
+**Outputs:** `outputs/runs/calo_cluster_net_v2_cutoffs_*/`, `outputs/eval_v2_cutoffs/`, `docs/findings.md` §2.2 (+ §7.4 update if cutoffs adopted).
+
+---
+
+### Milestone O — Run1a graph cutoff revisit
+
+- [ ] 20a: dt scan complete; max-cluster-Δt percentiles + over-cap fraction reported
+- [ ] 20b: New (r_max, dt_max) chosen with documented justification
+- [ ] 20c: Train ROOT files restored (if needed); graphs rebuilt; norm stats refreshed
+- [ ] 20d: CCN retrained at new cutoffs; τ_edge + BFS_EC tuned
+- [ ] 20e: Test eval done; decision gate evaluated; deployment recipe updated if cutoffs adopted
+- [ ] `docs/findings.md` §2.2 written
+
+---
+
+### Task 21: Run1a feature engineering — node quality + per-hit uncertainties
+
+**Goal:** Test whether augmenting node features with hit-quality information (`nSiPMs_`) and per-hit uncertainties (`timeErr_`, `eDepErr_`) improves run1a clustering. Hypothesis: single-SiPM hits skew toward pileup splinters and should be down-weighted (1-channel quality flag); per-hit time/energy errors enable normalized-residual edge features (`Δt / sqrt(σt_i² + σt_j²)`, analogous for ΔlogE / σlogE) that the model can use as confidence-aware separators. Layered ablation: add channels one at a time and attribute gains.
+
+**Scenario:** run1a / MDC2025 only. **Supersedes Task 18f's deferred outline** (which targeted MixLow). Run1b/MixLow extension is a follow-up gated on whether features help here.
+
+**Prerequisite:** Task 20 complete. The "baseline" Task 21 ablations are measured against is whichever cutoff Task 20 settles on (210/25 if Task 20's gate fails, new values otherwise) — so Task 21 always runs against the best available run1a baseline.
+
+#### 21a: Validate that the new branches exist + spot-check distributions
+
+- [ ] Open a v2 file from `splits/val_files.txt` and confirm `calohits.nSiPMs_`, `calohits.timeErr_`, `calohits.eDepErr_` are populated (uproot read; non-empty arrays; no NaN/inf)
+- [ ] Spot-check distributions: expected `nSiPMs_ ∈ {1, 2}` (each crystal has 2 SiPMs); errors are non-negative with physical scales (timeErr ~0.1–1 ns, eDepErr fraction ~5–20% of eDep)
+- [ ] Output: 1-page diagnostic in `docs/findings.md` §1 alongside the existing truth-labeling description, plus spot-check histograms in `outputs/task21a_branch_validation/`
+
+#### 21b: Plumb new branches through the graph pipeline
+
+- [ ] Read `nSiPMs_`, `timeErr_`, `eDepErr_` in `src/data/graph_builder.py` alongside existing calohits fields
+- [ ] Extend `Data.x` from 6-dim to up-to-9-dim (canonical order: existing 6, then `n_sipms, t_err, e_err`); leave the choice of which subset is *enabled* to a config flag so 21c variants share one builder
+- [ ] Extend canonical-name strings in `scripts/export_onnx.py` and `scripts/export_norm_stats.py` (single source of truth — there's a Task 16j unit test enforcing agreement)
+- [ ] Add new edge features for normalized residuals (gated by config flag): `dt_norm = Δt / sqrt(σt_i² + σt_j² + ε)`, `dlogE_norm = (log E_i − log E_j) / sqrt(σlogE_i² + σlogE_j² + ε)` — extends `Data.edge_attr` from 8-dim to up-to-10-dim
+- [ ] Extend `tests/test_graph_builder.py` to cover new dims + the config-flag branches; ensure all 97 existing tests still pass
+- [ ] Refresh model factory `src/models/__init__.py` so node/edge input dims read from config rather than hardcoded constants
+
+#### 21c: Per-variant ablation (gated retraining)
+
+Each variant retrains CCN-saliency staged on the Task-20 baseline, threshold-tunes τ_edge, sweeps BFS_EC, evaluates on val. Ablation gate is **purely on val metrics** — test eval is reserved for the single winner in 21d.
+
+- [ ] **Variant A:** 7-dim nodes (add `nSiPMs_` only), 8-dim edges unchanged. **Gate to retain:** ≥10% splits reduction or ≥0.5 pp TMR vs Task-20 baseline on val
+- [ ] **Variant B:** 9-dim nodes (A + `timeErr_` + `eDepErr_`), 8-dim edges unchanged. **Gate:** beats Variant A on the same metrics
+- [ ] **Variant C:** 9-dim nodes + 10-dim edges (B + normalized-residual edge features). **Gate:** beats Variant B on the same metrics
+
+Skip variants downstream of a failed gate (e.g., if A fails, do not run B/C — features don't help).
+
+#### 21d: Test-set eval on the winning variant
+
+- [ ] Run `scripts/evaluate_test.py` and `scripts/evaluate_cluster_physics.py` on the winner at the tuned τ
+- [ ] **Deployment-recipe gate:** require ≥10% improvement on downstream |dE| (E ≥ 50 MeV) **or** ≥1 pp TMR vs §7.4 CCN+BFS10 baseline to declare the winner the new run1a deployment recipe
+- [ ] If declared winner:
+  - Update `configs/calo_cluster_net.yaml` to the winning variant's input dims + tuned τ + BFS_EC
+  - Update CLAUDE.md "Default model recipe" + README.md feature tables
+  - Regenerate `tests/parity/calo_cluster_net_v2_stage1.parity.json` (CLAUDE.md invariant 9)
+  - Re-export ONNX with new `metadata_props["node_features"]` / `["edge_features"]` strings — coordinate with C++ graph maker (Task 16j) so it emits the matching tensors
+- [ ] If not: keep §7.4 as the deployment recipe, document the null in §8
+
+#### 21e: Document outcome
+
+- [ ] Per-variant ablation table in `docs/findings.md` §8: TMR, RMR, splits, merges, all-clusters and downstream |dE|/dr for Task-20 baseline + A + B + C (any that ran)
+- [ ] Mechanism notes: where each feature helps (or doesn't), what the spread tells us about model capacity vs feature value at run1a's pileup density
+- [ ] If features land for run1a but Task 18f (run1b) is still open, fold the run1b-extension call into a follow-up Task 22
+
+**Outputs:** `outputs/runs/calo_cluster_net_v2_feat_{a,b,c}/`, `outputs/eval_v2_feat_{a,b,c}/`, `docs/findings.md` §8.
+
+---
+
+### Milestone P — Run1a feature engineering
+
+- [ ] 21a: New branches validated in v2 ROOT files; spot-check distributions documented
+- [ ] 21b: Graph builder + normalization + ONNX export wired for new feature dims; tests extended
+- [ ] 21c: Per-variant ablation A/B/C complete (skipping downstream of failed gates); winning variant identified or null result recorded
+- [ ] 21d: Test eval on winner; deployment-recipe update if it beats §7.4
+- [ ] 21e: §8 written; run1b extension status noted
 
 ---
 
