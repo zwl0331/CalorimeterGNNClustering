@@ -16,6 +16,17 @@ GNN edge-classification clusterer for the Mu2e electromagnetic calorimeter — r
 
 ---
 
+## Scenarios
+
+The project covers two physics scenarios distinguished by the solenoid magnetic-field configuration:
+
+- **run1a** — with magnetic field (Mu2e Run 1a configuration). MDC2025 dataset (`root_files_v2/`) belongs to this scenario.
+- **run1b** — no magnetic field (Mu2e Run 1b auxiliary scenario; electrons travel straight, so cluster geometry and timing distributions differ from run1a). Run1B dataset (`root_files_run1b/`) belongs to this scenario.
+
+Models are trained per scenario. Configs and run-output names tagged with `_run1b_` are explicit run1b; the older `_v2_` naming (e.g., `calo_cluster_net_v2_stage1`) refers to run1a / MDC2025 data implicitly. New configs and runs should make the scenario tag explicit.
+
+---
+
 ## Environment
 
 **Always activate before running any Python:**
@@ -64,16 +75,19 @@ For training, evaluation, threshold tuning, plotting, and Run1B/MixLow pipeline 
 
 ## Default model recipe
 
-For deployment, downstream physics analysis, or any task that needs *the* recommended GNN clusterer, use **CCN+BFS10**: CaloClusterNet edge logits + BFS-style traversal at `bfs_expand_cut = 10 MeV`.
+For deployment, downstream physics analysis, or any task that needs *the* recommended GNN clusterer for **run1a** (MDC2025), use **CCN+BFS10**: CaloClusterNet edge logits + BFS-style traversal at `bfs_expand_cut = 10 MeV`.
 
 | Item | Value |
 |------|-------|
+| Scenario | run1a (with field, MDC2025) |
 | Config | `configs/calo_cluster_net.yaml` |
 | Frozen checkpoint | `outputs/runs/calo_cluster_net_v2_stage1/checkpoints/best_model.pt` |
 | Edge threshold | `inference.tau_edge: 0.20` |
 | BFS expand cut | `inference.bfs_expand_cut: 10` (MeV) |
 
 CCN+BFS10 improves mean |ΔE| by ~20% on `E_reco ≥ 50 MeV` clusters vs legacy BFS while matching or beating BFS on every standard clustering metric. Don't switch recipes without explicit reason — full numbers in `docs/findings.md`.
+
+For **run1b** (no-field, Run1B), use the dedicated `configs/calo_cluster_net_run1b_mixlow.yaml` with the corresponding `outputs/runs/calo_cluster_net_run1b_mixlow_stage1/` checkpoint. The run1a model does not generalize to run1b — see `docs/findings.md` Run1B sections.
 
 ---
 
@@ -89,12 +103,12 @@ Deployment to Mu2e Offline goes through `scripts/export_onnx.py` + `scripts/expo
 
 | What | Path |
 |------|------|
-| MDC2025 v2 ROOT files | `root_files_v2/` — train split deleted 2026-04-13 (~68 GB freed); val + test still present (15 files, 29 GB). Train reproducible via FermiGrid (cluster `90854576`). |
-| Run1B v2 ROOT files | `root_files_run1b/` — 20 files via FermiGrid (cluster `27583402`, no-field scenario) |
-| MDC2025 MCS art files | `/pnfs/mu2e/persistent/datasets/phy-sim/mcs/mu2e/FlateMinusMix1BBTriggered/MDC2025af_best_v1_1/art/` (50 files, run 001430) |
-| Run1B MCS art files | `/pnfs/mu2e/tape/phy-sim/mcs/mu2e/FlateMinus-KL/Run1Bah_best_v1_4-001/art/` (20 files, 24 GB) |
-| Run1B NTS files (no ancestry) | `/pnfs/mu2e/tape/phy-nts/nts/mu2e/FlateMinus-KL/Run1B-005/root/` (20 files, ~40K events each) |
-| Packed graphs (MDC2025) | `data/processed/{train,val,test}.pt` (calo-entrant truth) |
+| MDC2025 v2 ROOT files (run1a) | `root_files_v2/` — train split deleted 2026-04-13 (~68 GB freed); val + test still present (15 files, 29 GB). Train reproducible via FermiGrid (cluster `90854576`). |
+| Run1B v2 ROOT files (run1b) | `root_files_run1b/` — 20 files via FermiGrid (cluster `27583402`, no-field scenario) |
+| MDC2025 MCS art files (run1a) | `/pnfs/mu2e/persistent/datasets/phy-sim/mcs/mu2e/FlateMinusMix1BBTriggered/MDC2025af_best_v1_1/art/` (50 files, run 001430) |
+| Run1B MCS art files (run1b) | `/pnfs/mu2e/tape/phy-sim/mcs/mu2e/FlateMinus-KL/Run1Bah_best_v1_4-001/art/` (20 files, 24 GB) |
+| Run1B NTS files (run1b, no ancestry) | `/pnfs/mu2e/tape/phy-nts/nts/mu2e/FlateMinus-KL/Run1B-005/root/` (20 files, ~40K events each) |
+| Packed graphs (run1a / MDC2025) | `data/processed/{train,val,test}.pt` (calo-entrant truth) |
 | Norm stats | `data/normalization_stats.pt` |
 | Crystal geometry | `data/crystal_geometry.csv`, `data/crystal_neighbors.csv` |
 | Splits (frozen) | `splits/{train,val,test}_files.txt` (35/7/8 v2 files) |

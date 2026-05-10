@@ -18,6 +18,17 @@ Two models are implemented:
 | **SimpleEdgeNet** | 215K | Lightweight baseline: MLP encoders + sum message passing + edge MLP head |
 | **CaloClusterNet** | 676K | Residual MP blocks with gated aggregation, global context, node saliency + edge clustering heads |
 
+## Scenarios
+
+The project covers two Mu2e physics scenarios distinguished by the solenoid magnetic-field configuration:
+
+| Scenario | Field | Dataset | Path |
+|----------|-------|---------|------|
+| **run1a** | with field | MDC2025 | `root_files_v2/` |
+| **run1b** | no field | Run1B | `root_files_run1b/` |
+
+Models are trained per scenario; in the no-field run1b case, electrons travel straight, so cluster geometry and timing distributions differ from run1a. Run-output and config names tagged with `_run1b_` are explicit run1b; the older `_v2_` naming (e.g., `calo_cluster_net_v2_stage1`) refers to run1a / MDC2025 data implicitly.
+
 ## Current recommended path
 
 For follow-up analysis or deployment work, use the **CCN+BFS10** recipe:
