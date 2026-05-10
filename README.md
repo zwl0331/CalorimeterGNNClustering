@@ -199,3 +199,18 @@ python3 -m unittest discover -s tests -p "test_*.py" -v
 
 97 tests covering graph construction, truth labeling, model forward passes,
 inference pipeline, and postprocessing.
+
+## Documentation
+
+Detailed reference material lives in `docs/`:
+
+| Doc | What it covers |
+|-----|----------------|
+| [`docs/plan.md`](docs/plan.md) | Chronological task history and progress checklist |
+| [`docs/findings.md`](docs/findings.md) | Experimental results, physics insights, and conclusions across the v1/v2/Run1B campaigns |
+| [`docs/onnx_deployment.md`](docs/onnx_deployment.md) | ONNX deployment contract and C++ interface for the Offline integration |
+| [`docs/offline_integration.md`](docs/offline_integration.md) | Mu2e Offline integration plan (pre-meeting design notes) |
+| [`docs/presentation.md`](docs/presentation.md) | Beamer slide style spec — used by `scripts/make_slide_plots.py` |
+| [`docs/git_conventions.md`](docs/git_conventions.md) | Commit-message format and granularity rules |
+| [`docs/build_runbook.md`](docs/build_runbook.md) | muse builds, batch reprocessing, FermiGrid submission |
+| [`CLAUDE.md`](CLAUDE.md) | Hidden gotchas, critical invariants, and workflow guidance for Claude Code |
